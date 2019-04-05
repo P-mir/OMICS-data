@@ -1,0 +1,36 @@
+##TITLE= Audit trail, TOPSPIN		Version 2.1
+##JCAMPDX= 5.01
+##ORIGIN= Bruker BioSpin GmbH
+##OWNER= nmr
+$$ C:\donnees_rmn/data/JL/nmr/Endo_carrelatin_160905/512/pdata/1/auditp.txt
+##AUDIT TRAIL=  $$ (NUMBER, WHEN, WHO, WHERE, PROCESS, VERSION, WHAT)
+(   1,<2016-10-03 15:04:24.577 +0200>,<nmr>,<RMN500>,<go>,<TOPSPIN 2.1>,
+      <created by zg
+	started at 2016-10-03 14:59:58.670 +0200,
+	POWCHK enabled, PULCHK disabled,
+       configuration hash MD5:
+       FE 10 F2 44 2F AA 6E 7A EA DB E3 FE 52 A5 9B 6B
+       data hash MD5: 64K
+       85 9C 48 51 AA 08 E0 23 8B 44 29 F8 D7 D2 65 8A>)
+(   2,<2016-10-03 15:04:31.702 +0200>,<nmr>,<RMN500>,<proc1d>,<TOPSPIN 2.1>,
+      <Start of raw data processing
+       ef LB = -0.01 FT_mod = 6 PKNL = 1 SI = 64K 
+       data hash MD5: 64K
+       D7 60 94 5B AF 5B 08 A3 34 1C 1C AC 87 5A 22 AA>)
+(   3,<2016-10-03 15:04:32.030 +0200>,<nmr>,<RMN500>,<proc1d>,<TOPSPIN 2.1>,
+      <apk 
+       data hash MD5: 64K
+       97 7F B5 67 96 B0 FF 5A 59 54 25 FB EF A9 05 11>)
+(   4,<2016-10-03 15:04:32.092 +0200>,<nmr>,<RMN500>,<proc1d>,<TOPSPIN 2.1>,
+      <abs ABSG = 1 
+       data hash MD5: 64K
+       87 6C 5C F0 EF 20 48 47 EE D8 E9 94 49 F9 4E 21>)
+(   5,<2016-10-03 15:04:32.280 +0200>,<nmr>,<RMN500>,<audit>,<TOPSPIN 2.1>,
+      <user comment:
+       ICON-NMR User ID: JL
+       data hash MD5: 64K
+       87 6C 5C F0 EF 20 48 47 EE D8 E9 94 49 F9 4E 21>)
+##END=
+
+$$ hash MD5
+$$ A2 59 E7 84 15 56 05 DB 89 34 86 D6 92 BD 0C E4

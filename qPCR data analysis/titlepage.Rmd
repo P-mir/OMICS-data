@@ -1,0 +1,44 @@
+\begin{titlepage}
+\begin{center}
+
+% \includegraphics[scale=0.5]{./img/logo_centralesup.jpg} \hfill
+
+{\LARGE \textsc{Universite Catholique de Louvain}}
+
+\vfill 
+
+\textsc{\Large LSTAT2340-Traitement statistique de données Omiques}\\[0.5cm]
+
+\vfill
+
+% Title
+\HRule \\[0.4cm]
+{ \LARGE \bfseries \textsc{qPCR data analysis}\\[0.4cm] }
+\HRule \\[1.5cm]
+
+% {\Large 
+% \\[0.1cm]
+% \\[0.5cm]
+% }
+
+\vfill
+
+{\large
+\begin{center}
+  \textbf{Professors}\\[0.1cm]
+  Bernadette \textsc{Govaerts} \\
+  Céline \textsc{Bugli}
+\end{center}
+\vfill
+\begin{center}
+  \textbf{Authors}\\[0.1cm]
+  Patrick \textsc{Guerin} \\
+\end{center}
+}
+
+\vfill
+
+{\large \today}
+
+\end{center}
+\end{titlepage}

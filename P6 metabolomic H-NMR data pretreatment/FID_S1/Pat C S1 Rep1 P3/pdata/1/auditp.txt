@@ -1,0 +1,52 @@
+##TITLE= Audit trail, TOPSPIN		Version 2.1
+##JCAMPDX= 5.01
+##ORIGIN= Bruker BioSpin GmbH
+##OWNER= nmr
+$$ X:\jleenders/data/JL/nmr/Endo_carrelatin_160905/684/pdata/1/auditp.txt
+##AUDIT TRAIL=  $$ (NUMBER, WHEN, WHO, WHERE, PROCESS, VERSION, WHAT)
+(   1,<2016-10-05 14:33:44.843 +0200>,<nmr>,<RMN500>,<go>,<TOPSPIN 2.1>,
+      <created by zg
+	started at 2016-10-05 14:29:18.921 +0200,
+	POWCHK enabled, PULCHK disabled,
+       configuration hash MD5:
+       FE 10 F2 44 2F AA 6E 7A EA DB E3 FE 52 A5 9B 6B
+       data hash MD5: 64K
+       4C 7B C9 DA 4C E8 01 10 82 9E 60 14 63 2F F2 BF>)
+(   2,<2016-10-05 14:33:51.828 +0200>,<nmr>,<RMN500>,<proc1d>,<TOPSPIN 2.1>,
+      <Start of raw data processing
+       ef LB = -0.01 FT_mod = 6 PKNL = 1 SI = 64K 
+       data hash MD5: 64K
+       52 33 F8 D9 A9 2D 6D 4F CC 4D EB 5B 80 0B 42 80>)
+(   3,<2016-10-05 14:33:52.250 +0200>,<nmr>,<RMN500>,<proc1d>,<TOPSPIN 2.1>,
+      <apk 
+       data hash MD5: 64K
+       03 A4 86 55 A4 46 57 9A 78 42 60 8F 39 DC 47 41>)
+(   4,<2016-10-05 14:33:52.312 +0200>,<nmr>,<RMN500>,<proc1d>,<TOPSPIN 2.1>,
+      <abs ABSG = 1 
+       data hash MD5: 64K
+       EB 40 2A F3 D9 E2 9B E8 0B 22 C4 BB 03 D8 64 A3>)
+(   5,<2016-10-05 14:33:52.484 +0200>,<nmr>,<RMN500>,<audit>,<TOPSPIN 2.1>,
+      <user comment:
+       ICON-NMR User ID: JL
+       data hash MD5: 64K
+       EB 40 2A F3 D9 E2 9B E8 0B 22 C4 BB 03 D8 64 A3>)
+(   6,<2016-10-05 14:33:52.734 +0200>,<nmr>,<RMN500>,<dirdata>,<TOPSPIN 2.1>,
+      <wrpa from 1 684 "Endo_carrelatin_160905" "JL" "C:\donnees_rmn"
+       data hash MD5: 64K
+       EB 40 2A F3 D9 E2 9B E8 0B 22 C4 BB 03 D8 64 A3>)
+(   7,<2016-10-17 13:37:02.497 +0200>,<pdetullio>,<PC-ULG>,<proc1d>,<TOPSPIN 3.2>,
+      <pk fgphup PHC0 = 1.6 PHC1 = 0 
+       data hash MD5: 64K
+       FC 0B 47 A5 AB 55 A2 2F BA 37 8A 8F A7 44 7E FF>)
+(   8,<2016-10-17 13:37:14.239 +0200>,<pdetullio>,<PC-ULG>,<proc1d>,<TOPSPIN 3.2>,
+      <pk fgphup PHC0 = 7.978271 PHC1 = -16 
+       data hash MD5: 64K
+       24 46 CB E1 01 F5 82 34 34 20 47 2B 29 04 A2 80>)
+(   9,<2016-10-17 13:37:17.632 +0200>,<pdetullio>,<PC-ULG>,<proc1d>,<TOPSPIN 3.2>,
+      <abs ABSG = 1 
+       data hash MD5: 64K
+       6A D6 64 F5 0E A3 92 94 32 FA A2 49 CB 32 15 6A>)
+##END=
+
+$$ hash MD5
+$$ D2 D1 FF 20 E2 FC C0 E1 72 E5 65 1C 01 CC FA 63

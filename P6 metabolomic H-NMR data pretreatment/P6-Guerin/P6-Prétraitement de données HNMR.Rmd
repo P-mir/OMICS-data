@@ -1,0 +1,272 @@
+---
+title: "Pre-processing de donnÈes H-NMR par PEPS-NMR - donnÈes carre-latin"
+author: "Patrick Guerin"
+date: '`r format(Sys.time(), "%B %d, %Y,%H:%M")`'
+output:
+  html_document: # options pour sortie HTML
+    code_folding: hide #  Cache le code  
+    collapsed: yes # Cr√©e un document unique 
+    fig_caption: yes # Figures encapsul√©es ? 
+    fig_height: 5 # Hauteur par d√©faut des figures
+    fig_width: 6 # Largeur par d√©faut des figure
+    highlight: tango # style de mise en valeur du code
+    number_sections: yes # Ajout table des mati√®res 
+    theme: united  # Style du document
+    toc: yes # Table des matiere ?
+    toc_depth: 3  # Profondeur table des mati√®re
+    toc_float: yes # table des mati√®re flottante
+  pdf_document: # options pour sorties pdf
+    toc: yes
+    toc_depth: '3'
+  word_document: default
+---
+
+```{r Intro ,include=FALSE}
+# ====================================================================
+# Ce fichier Rmd fournit un code +/- g√©n√©rique pour pr√©traiter des donn√©es H-NMR avec PEPS du FID au Spectre.  Si les donn√©es sont class√©es en groupes il pr√©sente √©galement toute une s√©rie de r√©sultats pour v√©rifier l'homog√©n√©it√© des groupes
+# ====================================================================
+```
+
+```{r setup, include=FALSE}
+## Download and load the librairies
+require ("devtools")
+# devtools::install_github("ManonMartin/PepsNMR", build_vignettes = TRUE)
+# devtools::install_github("ManonMartin/MBXUCL", build_vignettes = TRUE)
+require(PepsNMR)
+require(knitr) 
+require(pander) # Librairie pour afficher des tableaux
+require(MBXUCL)
+## Options globales
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# ParamÈtrage du prÈtraitement et de l'affichage des Ètapes de prÈtraitements
+
+```{r PEPSparams, cache = TRUE,include=F}
+#============ PARAMETRES A MODIFIER quand vous utilisez PEPS
+
+# 1. ParamËtres globaux liÈs aux noms et chemin d'accËs des dataset
+
+# Mettre ici le nom du chemin d'acc√®s du r√©pertoire o√π sont les FID
+# Dans ce cas ci on ne va pas l'utiliser car les donn√©es sont liÈes √† la librairie mais vous devrez le faire pour le projet
+data.path <- "~/Traitement des donnÈes omics/Devoirs/P6  PrÈtraitement de donnÈes mÈtabolomiques H-NMR/FID_S1" 
+# Pour Human serum on charge tout simplement les donn√©es du package et donc il faut rechercher le chemin d'acc√®s
+#data.path=paste0(system.file("extdata",package="SOAP"),"/","HumanSerum")
+
+# 2. DÈfinition des groupes de spectres par sujet. Cette info est fournies dans le package PEPS dans la variable "Group_HS"
+
+# 3. Options de sauvegarde
+# Path du repertoire o√π il faut sauver les donn√©es
+out.path="~/Traitement des donnÈes omics/Devoirs/P6  PrÈtraitement de donnÈes mÈtabolomiques H-NMR/Data"
+# Fichier o√π il faut sauver les spectres finaux (sans extensions)
+dataname="Carrelatin_full_PEPS"  
+save = TRUE # sauver en Rdata les spectres finaux et les paramËtres d'acquisition ?
+export = TRUE # exporter en csv ?
+path <-"~/Traitement des donnÈes omics/Devoirs/P6  PrÈtraitement de donnÈes mÈtabolomiques H-NMR/"
+
+# 4. Setup des paramËtre de reprÈsentation graphique des paramËtres de prËtraitement
+# Est ce qu'on les dessine et lesquels ?
+DrawFid=T
+DrawSpectra=T
+WhichSpectra=c(1:4)
+NumStack=4  # Nombre de spectres par graphe
+Fid_window=1:16000 # Quelle fenÍtre Fid ?
+Raw_Spec_window=1:30000  # Quelle fen√™tre Spectrale ?
+
+# 5. DÈfinition de param√®tres des fonctions de prÈtraitement qu'il faut absolument vÈrifier
+# 3.1 Lecture des Fid
+subdirs = FALSE # T si les FID files sont organis√©s en plus de 1 niveau de sous r√©pertories
+# 3.10 Warping
+dowarping=T
+# 3.15 Region Removal
+typeofspectra ="serum"
+# 3.13 Bucketing
+mb=238  # attention cet argument ne fonctionne pas pour le moment, √† corriger
+# 3.14 ZoneAggregation
+fromto.za =list(Citrate = c(2.5, 2.7))
+
+```
+
+# Lecture des FID
+
+Voici nos signal FID non traitÈs, on remarque qu'il existe un retard dans la mesure des vibrations (Brucker group delay).
+```{r PreprocessingWorkflow1, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+# Lecture des Fid
+fidList <- ReadFids(path = data.path, subdirs = subdirs)
+Fid_data <- fidList[["Fid_data"]]
+Fid_info <- fidList[["Fid_info"]]
+# Repr√©sentation graphique des FID
+if(DrawFid==T) Draw(Re(Fid_data[WhichSpectra,Fid_window]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="FID Pur")
+# ReprËsentation graphique des FID agrandis
+if(DrawFid==T) Draw(Re(Fid_data[WhichSpectra,round(Fid_window/20)]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="FID Pur")
+```
+
+# PrÈtraitements du FID
+
+## Correction du Group Delay
+
+On commence par supprimer le dÈlai observÈ:
+```{r PreprocessingWorkflow2, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+# FirstOrderPhaseCorrection
+Fid_data <- GroupDelayCorrection(Fid_data, Fid_info)
+# Repr√©sentation graphique des FID
+if(DrawFid==T) Draw(Re(Fid_data[WhichSpectra,Fid_window/20]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Group Delay Correction")
+```
+
+
+## Solvent Suppression
+
+L'Ètape suivante est la suppression du bruit gÈnÈrÈ par le solvant, qui se caractÈrise par une oscillation importante dans nos donnÈes
+```{r PreprocessingWorkflow3, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+# FirstOrderPhaseCorrection
+Fid_data <- SolventSuppression(Fid_data)
+# Repr√©sentation graphique des FID
+if(DrawFid==T) Draw(Re(Fid_data[WhichSpectra,Fid_window]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Solvent suppression")
+if(DrawFid==T) Draw(Re(Fid_data[WhichSpectra,Fid_window/20]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Solvent suppression")
+```
+
+.
+
+## Apodisation
+
+L'Ètape suivante est l'apodisation (du  grec ·podos (´ sans pieds ª). Cette Ètape consiste ‡ rÈduire ‡ 0 les variations les plus faibles (les "pieds") observÈ afin de retirer le bruit statistique inhÈrent ‡ l'analyse. Ce bruit s'observe par le fait que l'intensitÈ du signal NMR devrait normaliser diminuer jusqu'‡ s'annuler, or il nos donnÈes montre un signal qui s'affaiblit avant de se stabiliser sans atteindre zÈro.
+
+```{r PreprocessingWorkflow4, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+# FirstOrderPhaseCorrection
+Fid_data <- Apodization(Fid_data,Fid_info)
+# Repr√©sentation graphique des FID
+if(DrawFid==T) Draw(Re(Fid_data[WhichSpectra,Fid_window]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Apodization")
+```
+
+On peut constater que le bruit semble bien avoir disparu.
+
+
+## TransformÈe de Fourier
+
+On utilise la transformÈe de Fourier pour passer du domaine temporel au domaine frÈquentiel, plus propice pour nos analyses. On observait auparavant la diminution de l'intensitÈ de notre signal en fonction du temps, on observe maintenant les frequence dÈterminantes de ce signal.
+
+```{r PreprocessingWorkflow5, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+# FourierTransform
+Spectrum_data <- FourierTransform(Fid_data, Fid_info)
+# Repr√©sentation graphique des FID
+Raw_Spec_window=20000:30000 
+if(DrawSpectra==T) Draw(Re(Spectrum_data[WhichSpectra,Raw_Spec_window]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Fourier Transform")
+```
+
+Auparavant, tous les signaux Ètaient reprÈsentÈs par superposition en fonction du temps. Ceci ne facilitait pas la lecture ou les Èventuelles analyses. DorÈnavant, un signal est reprÈsentÈ par un pic ayant une certaine frÈquence (axe des X)
+
+# PrÈtraitements des spectres aprËs la TF
+
+## Correction de phase d'ordre 0
+
+Notre signal est exprimÈ en nombre complexe, on cherche l'angle de rotation qui maximise la partie rÈel de notre signal et rend nulle sa partie complexe
+
+```{r PreprocessingWorkflow6, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+# ZeroOrderPhaseCorrection
+Spectrum_data <- ZeroOrderPhaseCorrection(Spectrum_data)
+
+# Repr√©sentation graphique des spectres
+if(DrawSpectra==T)  Draw(Re(Spectrum_data[WhichSpectra,Raw_Spec_window]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="ZeroOrderPhaseCorrection")
+```
+
+Il est difficile de le voir graphiquement mais suite ‡ la correction de phase les pics sont exprimÈs au maximum dans le domaine des rÈels positifs (‡ comparer avec le prÈcÈdent graphique)
+
+## Alignement par rapport au pic de rÈfÈrence (le TMSP) 
+
+On aligne maintenant nos spectre ‡ l'aide d'une molÈcule de rÈfÈrence (TMSP)
+
+```{r PreprocessingWorkflow7, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+Spectrum_data <- InternalReferencing(Spectrum_data, Fid_info)
+# Repr√©sentation graphique des spectres
+if(DrawSpectra==T)  Draw(Re(Spectrum_data[WhichSpectra,Raw_Spec_window]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Internal Referencing")
+```
+
+On observe bien l'alignement des spectre ‡ 0 pour notre molÈucle de rÈfÈrence.
+
+## Baseline correction
+
+A ce stade, il peut encore exister des valeurs lÈgËrement nÈgatives, on supprime celles-ci par le biais d'une mÈthode de lissage 
+
+```{r PreprocessingWorkflow8, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+
+Spectrum_data <- BaselineCorrection(Spectrum_data, lambda.bc = 1e+08, p.bc = 0.01)
+# Repr√©sentation graphique des spectres
+if(DrawSpectra==T)  Draw(Re(Spectrum_data[WhichSpectra,Raw_Spec_window]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Internal Referencing")
+```
+
+## Suppression des valeurs nÈgatives
+
+Si des valeurs nÈgatives subsistent, ces derniËres sont ÈgalisÈes ‡ zero.
+```{r PreprocessingWorkflow9, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+
+Spectrum_data <- NegativeValuesZeroing(Spectrum_data)
+# Repr√©sentation graphique des spectres
+if(DrawSpectra==T)  Draw(Re(Spectrum_data[WhichSpectra,Raw_Spec_window]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Negative Values Zeroing")
+```
+
+## Alignement - Warping
+
+Suite ‡ des variations entre les Èchantillons, les pics de frÈquences ne sont pas toujours alignÈs malgrÈ la molÈcule de rÈfÈrence. On transforme alors l'axe des absysses afin de trouver le meilleur alignement possible.
+
+```{r PreprocessingWorkflow10, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+if(dowarping==TRUE) Spectrum_data <- Warping(Spectrum_data,reference.choice = "before")
+# Repr√©sentation graphique des spectres
+if(DrawSpectra==T)  Draw(Re(Spectrum_data[WhichSpectra,Raw_Spec_window]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Warping")
+```
+
+## Window selection and Bucketing
+
+Typiquement, seul certaines frÈquences seront utile pour notre analyse, on selectionne donc uniquement celles-ci.
+```{r PreprocessingWorkflow11, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+Spectrum_data <- WindowSelection(Spectrum_data, from.ws = 10, to.ws = 0.48)
+# Bucketing avec le Window selection int√©gr√©
+Spectrum_data <- Bucketing(Spectrum_data, intmeth = "t",mb=mb)
+# Repr√©sentation graphique des spectres
+if(DrawSpectra==T) Draw(Re(Spectrum_data[WhichSpectra,]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Bucketing")
+```
+
+## Suppression des rÈgions non informatives
+
+Certaines rÈgions peuvent Ítre instable ou inutile ‡ notre analyse, on les suppriment ‡ ce stade.
+```{r PreprocessingWorkflow13, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+# Choix de la r√©gion √† supprimer
+Spectrum_data <-  RegionRemoval(Spectrum_data, typeofspectra =typeofspectra)
+# Repr√©sentation graphique des spectres
+if(DrawSpectra==T) Draw(Re(Spectrum_data[WhichSpectra,]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Region Removal")
+```
+
+## Agregation de zones 
+
+AorËs le bucketing et la suppression de certaines rÈgions,on rÈaligne de nouveau les pics de frÈquences.
+```{r PreprocessingWorkflow14, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+# Normalization
+Spectrum_data <- ZoneAggregation(Spectrum_data, 
+fromto.za = list(Citrate =c(2.5, 2.7)))
+# Repr√©sentation graphique des spectres
+if(DrawSpectra==T) Draw(Re(Spectrum_data[WhichSpectra,]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Normalization")
+```
+
+## Normalisation
+
+Certains Èchantillons sont typiquement plus diluÈs que d'autres, rendant les comparaisons difficiles. Pour pallier ‡ ce problËme une normalisation des donnÈes est nÈcÈssaires.
+```{r PreprocessingWorkflow15, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+# Normalization
+Spectrum_data <- Normalization(Spectrum_data,type.norm="mean")
+# Repr√©sentation graphique des spectres
+if(DrawSpectra==T) Draw(Re(Spectrum_data[WhichSpectra,]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Normalization")
+
+```
+
+
+```{r,eval=F,include=F}
+# Sauvegarde des spectres trait√©s en Rdata et fichier Csv
+Re_Spectrum_data=Re(Spectrum_data)
+if (save == TRUE) {save(Re_Spectrum_data, Fid_info, file=paste0(out.path,dataname,".RData"))
+ }
+if (export == TRUE) {
+utils::write.table(Re_Spectrum_data, file = paste0(out.path,dataname,".csv"),sep=" ;")
+utils::write.table(Fid_info, file = paste0(out.path, "/",dataname , "_FidInfo.csv"),sep=" ;")
+# ATTENTION le fichier CSV qui sort √† une cellule qui manque au dessus √† gauche.  Il faut donc, √† la main, ouvrir le fichier et reculer les ppms de la premi√®re ligne
+}
+write.csv(Re_Spectrum_data,file="CarreLatin_full_Peps.csv")
+```

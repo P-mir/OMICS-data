@@ -1,0 +1,23 @@
+##TITLE= Audit trail, TOPSPIN		Version 2.1
+##JCAMPDX= 5.01
+##ORIGIN= Bruker BioSpin GmbH
+##OWNER= nmr
+$$ C:\donnees_rmn/data/JL/nmr/Endo_carrelatin_160905/594/audita.txt
+##AUDIT TRAIL=  $$ (NUMBER, WHEN, WHO, WHERE, PROCESS, VERSION, WHAT)
+(   1,<2016-10-05 10:55:08.406 +0200>,<nmr>,<RMN500>,<go>,<TOPSPIN 2.1>,
+      <created by zg
+	started at 2016-10-05 10:50:42.390 +0200,
+	POWCHK enabled, PULCHK disabled,
+       configuration hash MD5:
+       FE 10 F2 44 2F AA 6E 7A EA DB E3 FE 52 A5 9B 6B
+       data hash MD5: 64K
+       D7 F9 72 90 C6 0F 44 1C CB A0 50 7A 83 21 E5 5A>)
+(   2,<2016-10-05 10:55:16.156 +0200>,<nmr>,<RMN500>,<audit>,<TOPSPIN 2.1>,
+      <user comment:
+       ICON-NMR User ID: JL
+       data hash MD5: 64K
+       D7 F9 72 90 C6 0F 44 1C CB A0 50 7A 83 21 E5 5A>)
+##END=
+
+$$ hash MD5
+$$ 66 9E 78 DD 25 9E 0D B0 60 FC 46 E0 5A 74 D1 23

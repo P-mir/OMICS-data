@@ -1,0 +1,323 @@
+---
+title: "Analysis of qPCR data"
+author: "Patrick Guerin"
+date: "february 17, 2018"
+output:
+  html_document: default
+  pdf_document: default
+bibliography: biblio.bib
+link-citations: true
+
+---
+<!-- fontsize: 13pt -->
+
+<!-- # ```{r child = 'titlepage.Rmd'} -->
+<!-- # ``` -->
+
+
+#Introduction
+
+In this project we will analyse data producted by qPCR analysis (quantitative Polymerase Chain Reaction ).
+
+qCPR analysis have been realised on blood sample coming from two groups of subjects: sick patients and control patients. The qCPR allows to quantify the expression of the micro-ARN (miRNA). 
+
+Our goal will be to identify the miRNAs which are significantly different between healty and sick patient groups,then build a model predicting the disease.
+```{r setup, include=FALSE}
+
+if (!require("magrittr")) install.packages("magrittr")
+if (!require("dplyr")) install.packages("dplyr")
+
+
+library(corrplot)
+library(knitr)
+library(pander)
+library(car)
+require(factoextra)
+library(FactoMineR)
+```
+
+## Descriptive analysis
+
+```{r, echo=FALSE}
+
+setwd("C:/Users/p/OneDrive - UCL/Traitement des données omics/Devoirs/projet données qPCR")
+data=read.table("data_qPCR.csv",header=T,sep=";",dec=".")
+
+sick=data[ which(data$Groupe=='malade'), ]
+control=data[ which(data$Groupe=='temoin'), ]
+
+
+smean=apply(sick[(3:21)],2,mean)
+cmean=apply(control[(3:21)],2,mean)
+
+barplot(height=t(cbind(smean,cmean)),beside=T,space=c(0,2),col=c("black","red"), border=F,main="Mean comparison")
+legend("topleft",legend=c("sick","control"),fill=c("black","red"),cex=1.1)
+
+smedian=apply(sick[(3:21)],2,median)
+cmedian=apply(control[(3:21)],2,median)
+
+barplot(height=t(cbind(smedian,cmedian)),beside=T,space=c(0,2),col=c("black","red"), border=F,main="Median comparison")
+legend("topright",legend=c("sick","control"),fill=c("black","red"),cex=1.1)
+
+```
+
+Mean and median comparisons allow us to see a differences between the two groups, which seems to indicate that the densities of the mirNA data variables are different according to the health of the patients.
+
+```{r, echo=FALSE}
+
+s_std=apply(sick[(3:21)],2,sd)
+c_std=apply(control[(3:21)],2,sd)
+
+
+
+barplot(height=t(cbind(s_std,c_std)),beside=T,space=c(0,2),col=c("black","red"), border=F,main="Standard deviation comparison")
+legend("topleft",legend=c("sick","control"),fill=c("black","red"),cex=1.1)
+
+
+```
+
+The comparison of the standard deviation values is interesting: mirNA data has sometimes a standard deviation twice more important for sick patient than healthy ones.
+
+Let's now see if the maximum and minimum values of the variables are different depending of the patient group.
+
+
+```{r, echo=FALSE}
+
+s_max=apply(sick[(3:21)],2,max)
+c_max=apply(control[(3:21)],2,max)
+
+barplot(height=t(cbind(s_max,c_max)),beside=T,space=c(0,2),col=c("black","red"), border=F,main="Maximum values comparison")
+legend("topright",legend=c("sick","control"),fill=c("black","red"),cex=1.1)
+
+
+s_min=apply(sick[(3:21)],2,min)
+c_min=apply(control[(3:21)],2,min)
+
+barplot(height=t(cbind(s_min,c_min)),beside=T,space=c(0,2),col=c("black","red"), border=F,main="Minimum values comparison")
+legend("topleft",legend=c("sick","control"),fill=c("black","red"),cex=1.1)
+
+
+```
+
+We see a clear difference between the two groups, it seems to indicate that some of our variable take more extreme values among sick patients.
+
+
+
+
+We can also compare the covariance matrix for the two groups of patients,
+we remove the labels for the sake of clarity.
+
+```{r, echo=FALSE,fig.height=6,fig.width=6}
+
+
+corrplot(cor(sick[3:21]), tl.pos = "n")
+title("variance-covariance Matrix, sick patients",line=3)
+
+corrplot(cor(control[3:21]), tl.pos = "n")
+title("variance-covariance Matrix, healthy patients",line=3)
+
+```
+
+We see that the covariance of the mirNA data variables are sometimes different between the two groups of patients, it might indicate that the disease in not only linked with the expression of some particular genes but also also with the simultaneous expression of genes.
+
+
+## Normality of the data
+
+
+It is important to establish if the data follows or not a normal distribution, since it is the underlying assumptions of many statistical procedures such as t-tests or ANOVA.
+
+Shapiro-Wilk test of normaly has been shown by montecarlo simulation to have the best power for a given significance. [@power_comparisons]
+
+<!-- still have low power for small sample -->
+<!-- note:  --> for sample size 30 or less normal test power are less than 40% at 5% significance
+
+<!-- compare sample percentiles and normal theoric percentiles -->
+<!-- Compare the quantiles data samples after they have been ordered and standardised and samples and the theoretical quantiles coming form a normal distribution -->
+
+
+We compute the p-values of the Shapiro-Wilk test for each miRNA then display the variables whose p-value is inferior to 0.05. 
+
+Note: Multiple testing corrections are out of the scope of this project
+
+```{r, echo=FALSE, fig.height=2,fig.width=2}
+
+shap=apply(data[3:40],2,shapiro.test)
+pvalues = sapply(shap, `[`, c("p.value"))
+pvalues = pvalues[ which(pvalues<0.05)]
+pander(pvalues)
+
+
+
+```
+
+We can observe that the null hypothesis of normality is rejected for 28 variables, at a risk of 5%. 
+
+Considering the fact that some of these variable have already been taken to a logarithmic scale, we choose to not normalise the variables and use tests which do not make any asumptions about the normality of the variables.
+
+
+## Detection of the outliers
+
+To detect outliers, we first look at the boxplot of each variable:
+
+```{r, echo=FALSE}
+boxplot(x=sick[3:21],main="Boxplot of the miRNA, sick patients",xlab="miRNA",col = "blue",names=F)
+boxplot(x=control[3:21],main="Boxplot of the miRNA, healthy patients",xlab="miRNA",col = "blue",names=F)
+```
+
+
+By default, outliers are defined as outliers according to John Tukey rule: points below \begin{equation}Q1 - 1.5×IQR\end{equation} or above \begin{equation}Q3 + 1.5×IQR \end{equation}
+
+We can see that the number of outliers is very important if we use the Tukey's range to detect outliers. 
+
+Indeed following this rule would imply to remove 55 observations, \textit{i.e.} losing roughly half of the information available.
+
+Since discarding too much observations may be counterproductive for predictive purpose, we have to define a more restrictive criterion to detect the outliers.
+
+We consider as outliers the points below \begin{equation}Q1 - 5×IQR\end{equation} or above \begin{equation}Q3 + 5×IQR \end{equation}
+
+This rule lead us to discard 9 observations from our dataset.
+
+
+```{r, echo=FALSE}
+#how to choose the ones to remove?
+# why removing the outliers?
+
+std=5
+Sick=sick
+for (i in 3:40) {
+  Sick= Sick[!Sick[,i] %in% boxplot(sick[,i], plot=FALSE,range=std)$out,] 
+  
+}
+
+outliers = boxplot(control[3:40], plot=FALSE,range=std)$out
+Control=control
+
+for (i in 3:40) {
+  Control= Control[!Control[,i] %in% boxplot(control[,i], plot=FALSE,range=std)$out,] 
+}
+
+message("Proportion (%) of outliers: ", round((length(data[,1])-length(Sick[,1])-length(Control[,1])) /length(data[,1])*100,2))
+
+```
+
+Finally, We have to bear in mind that it is generally a bad idea to remove outliers. If so, it should be done with the help of technical knowledge as much as possible rather than simply based on an arbitrary criterion.
+
+## Hypothesis testing
+
+### The  Wilcoxon-Mann-Whitney rank sum test
+
+Since a lot of our covariates are not normally distributed, we choose to favour the nonparametric Wilcoxon-Mann-Whitney test over the t-test to determine if the variables of our two groups of patients follow the same distribution.
+
+Once again we display only the covariates for which the null hypothesis can be rejected at a risk of 5%.
+
+
+```{r, echo=FALSE}
+# aka double-samples wilcoxon test
+# almost as efficient as t-test even when normality hold!
+
+#ranks will be similar if the population are the same
+
+wilcox_pvalues=sapply(3:21, function(i){
+  wilcox.test(Sick[,i], Control[,i], )$p.value
+  }) 
+wilcox_pvalues=as.data.frame(t(wilcox_pvalues))
+colnames(wilcox_pvalues)=colnames(data[3:21])
+
+wilcox_pvalues = t(wilcox_pvalues[ which(wilcox_pvalues[1,]<0.05)])
+
+pander(wilcox_pvalues)
+```
+
+
+
+12 of the variables have a distribution significantly different between the two groups of patients. These variables can be seen as variables of interest to differenciate healthy and sick patients.
+
+
+## Principal Component Analysis
+
+In order to further analyze the determinants of the disease we realize a PCA.
+
+beforehand we standardize and center the data.
+
+Standardization is important since PCA aims to maximize the variance, if the variables do not have the same variance beforehand, some will have more impact on the analysis.
+
+```{r, echo=FALSE,warning=FALSE}
+
+
+df= rbind(Sick,Control)
+df$Groupe= as.factor(df$Groupe)
+ncp=4
+PCA.res = prcomp(df[3:21],center = T, scale = T,rank. = ncp)
+
+fviz_screeplot(PCA.res, choice="eigenvalue")
+
+```
+
+The scree plot show us that the first two axes account for the majority of the variance,
+we will thus analyze this two axis.
+
+```{r, echo=FALSE,warning=FALSE}
+
+
+# correlation plot
+# fviz_pca_var(PCA.res)
+
+Classes=df$Groupe
+#Score plot avec la librairie factoextra
+fviz_pca_biplot(PCA.res,habillage=Classes)
+# fviz_pca_biplot(PCA.res,habillage=Classes,axes = c(3, 4))
+
+
+```
+
+We can notice that most of the healthy patients are situated in the right part of the dial while a lot of sick patients can be found in the left part, especially in the upper-left.
+
+The disease seems to be linked with variables like let_01_5p, mir_003_3p,mir_009_5p, let_02_5p,mir_007_5p...
+
+Those variables have already been noticed with the Wilcoxon rank-sum test and the PCA seems to confirm the close relationship of theses variables with the disease. 
+
+
+##Annexe
+
+##
+
+```{r, echo=FALSE}
+
+
+
+
+
+```
+
+
+
+### Matrix of variable loadings
+
+Factor loadings indicate how much a factor explains a variable, loadings close to -1 or 1 indicate that the factor strongly influences the variable.
+```{r, echo=FALSE}
+
+pander(round(PCA.res$rotation,2))
+```
+
+### Coordinates of the observations on the principal components. (Scores)
+
+
+```{r, echo=FALSE}
+
+kable(round(PCA.res$x,2))
+
+```
+
+
+```{r, echo=FALSE}
+
+
+
+```
+
+
+
+###References
+
+\section{References}
+

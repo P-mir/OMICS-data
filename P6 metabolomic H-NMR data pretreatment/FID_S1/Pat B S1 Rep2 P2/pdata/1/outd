@@ -1,0 +1,17 @@
+##TITLE= Parameter file, TOPSPIN		Version 2.1
+##JCAMPDX= 5.0
+##DATATYPE= Parameter Values
+##NPOINTS= 1	$$ modification sequence number
+##ORIGIN= Bruker BioSpin GmbH
+##OWNER= nmr
+$$ 2016-10-05 10:27:54.765 +0200  nmr@RMN500
+$$ C:/Bruker/TOPSPIN/prog/curdir/changer/inmrchanger/Oct05-2016-0941-TD/5/data/nmr/Endo_carrelatin_160905/602/pdata/1/outd
+$$ process C:\Bruker\TOPSPIN\prog\mod\xwish3.exe
+##$CURPLOT= <OKI>
+##$CURPRIN= <$OKI>
+##$DFORMAT= <normdp>
+##$LAYOUT= <+/1D_H.xwp>
+##$LFORMAT= <normlp>
+##$PFORMAT= <normpl>
+##$SURQMSG= 1
+##END=

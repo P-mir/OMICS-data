@@ -1,0 +1,325 @@
+---
+title: "Pre-processing de données ^1^H-NMR par PEPS-NMR - données human-serum"
+author: "B. Govaerts - M. Martin"
+date: '`r format(Sys.time(), "%B %d, %Y,%H:%M")`'
+output:
+  html_document: # options pour sortie HTML
+    code_folding: hide #  Cache le code  
+    collapsed: yes # Crée un document unique 
+    fig_caption: yes # Figures encapsulées ? 
+    fig_height: 5 # Hauteur par défaut des figures
+    fig_width: 6 # Largeur par défaut des figure
+    highlight: tango # style de mise en valeur du code
+    number_sections: yes # Ajout table des matières 
+    theme: united  # Style du document
+    toc: yes # Table des matiere ?
+    toc_depth: 3  # Profondeur table des matière
+    toc_float: yes # table des matière flottante
+  pdf_document: # options pour sorties pdf
+    toc: yes
+    toc_depth: '3'
+  word_document: default
+---
+
+```{r Intro ,include=FALSE}
+# ====================================================================
+# Ce fichier Rmd fournit un code +/- générique pour prétraiter des données H-NMR avec PEPS du FID au Spectre.  Si les données sont classées en groupes il présente également toute une série de résultats pour vérifier l'homogénéité des groupes
+# ====================================================================
+```
+
+```{r setup, include=FALSE}
+## Download and load the librairies
+require ("devtools")
+#devtools::install_github("ManonMartin/PepsNMR", build_vignettes = TRUE)
+#devtools::install_github("ManonMartin/MBXUCL", build_vignettes = TRUE)
+require(PepsNMR)
+require(knitr) 
+require(pander) # Librairie pour afficher des tableaux
+require(MBXUCL)
+## Options globales
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Description des données et but
+
+"In the HSerum dataset, a blood sample was collected for 4 different donors. For each sample, 8 sub-samples were measured across 8 days with one sub-sample of each donor per day and permutations according to a latin hypercube sampling method. The total number of available FID signals is then 4*8 = 32. Data were acquired with a 500MHz Bruker Advance spectrometer using a CPMG relaxation-editing sequence with pre-saturation. Spectra are labelled as: Jx-Dy-1D-Tx where x is the day of measurement, y is the donor label, 1D means that the spectra is a one day spectra and Tz is the order of the measure of within the day."
+
+La source de variance principale dans ces données est donc, en principe, le donneur.  Le prétraitement devrait donc idéalement donner une matrice de spectres qui maximise la variabilité entre les spectres de différents donneurs (variance "between") et minimise la variance entre spectres au sein d'un même donneur car ce sont uniquement des répétitions de mesures (variance "within") 
+
+
+# Paramètrage du prétraitement et de l'affichage des étapes de prétraitements
+
+```{r PEPSparams, cache = TRUE,include=F}
+#============ PARAMETRES A MODIFIER quand vous utilisez PEPS
+
+# 1. Paramètres globaux liés aux noms et chemin d'accès des dataset
+
+# Mettre ici le nom du chemin d'accès du répertoire où sont les FID
+# Dans ce cas ci on ne va pas l'utiliser car les données sont liées à la librairie mais vous devrez le faire pour le projet
+# data.path <- "/Users/bgovaerts/Dropbox/bg__UCL_rech_metabiose/Repetabilite_RMN/Data_Brucker_1D/Endo_serum_repet/" 
+# Pour Human serum on charge tout simplement les données du package et donc il faut rechercher le chemin d'accès
+data.path=paste0(system.file("extdata",package="SOAP"),"/","HumanSerum")
+
+# 2. Définition des groupes de spectres par sujet. Cette info est fournies dans le package PEPS dans la variable "Group_HS"
+data(FinalSpectra_HU)
+group=Group_HS
+groupN=as.numeric(group)  # Version numerique des noms de groupes
+
+# 3. Options de sauvegarde
+# Path du repertoire où il faut sauver les données
+out.path="~/Dropbox/Partage_OMICS_COURSE/Data_stat2340/Human_Serum/"  
+# Fichier où il faut sauver les spectres finaux (sans extensions)
+dataname="HumSerum_full_PEPS"  
+save = TRUE # sauver en Rdata les spectres finaux et les paramètres d'acquisition ?
+export = TRUE # exporter en csv ?
+
+# 4. Setup des paramètre de représentation graphique des paramètres de prétraitement
+# Est ce qu'on les dessine et lesquels ?
+DrawFid=T
+DrawSpectra=T
+WhichSpectra=c(1:4)
+NumStack=4  # Nombre de spectres par graphe
+Fid_window=1:16000 # Quelle fenêtre Fid ?
+Raw_Spec_window=1:30000  # Quelle fenêtre Spectrale ?
+
+# 5. Définition de paramètres des fonctions de prétraitement qu'il faut absolument vérifier
+# 3.1 Lecture des Fid
+subdirs = FALSE # T si les FID files sont organisés en plus de 1 niveau de sous répertories
+# 3.10 Warping
+dowarping=T
+# 3.15 Region Removal
+typeofspectra ="serum"
+# 3.13 Bucketing
+mb=500  # attention cet argument ne fonctionne pas pour le moment, à corriger
+# 3.14 ZoneAggregation
+fromto.za =list(Citrate = c(2.5, 2.7))
+
+```
+
+
+# Lecture des FID
+```{r PreprocessingWorkflow1, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+# Lecture des Fid
+fidList <- ReadFids(path = data.path, subdirs = subdirs)
+Fid_data <- fidList[["Fid_data"]]
+Fid_info <- fidList[["Fid_info"]]
+# Représentation graphique des FID
+if(DrawFid==T) Draw(Re(Fid_data[WhichSpectra,Fid_window]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="FID Pur")
+# Représentation graphique des FID agrandis
+if(DrawFid==T) Draw(Re(Fid_data[WhichSpectra,round(Fid_window/20)]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="FID Pur")
+```
+
+# Prétraitements du FID
+
+## Correction du Group Delay
+```{r PreprocessingWorkflow2, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+# FirstOrderPhaseCorrection
+Fid_data <- GroupDelayCorrection(Fid_data, Fid_info)
+# Représentation graphique des FID
+if(DrawFid==T) Draw(Re(Fid_data[WhichSpectra,Fid_window]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Group Delay Correction")
+```
+
+## Solvent Suppression
+
+```{r PreprocessingWorkflow3, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+# FirstOrderPhaseCorrection
+Fid_data <- SolventSuppression(Fid_data)
+# Représentation graphique des FID
+if(DrawFid==T) Draw(Re(Fid_data[WhichSpectra,Fid_window]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Solvent suppression")
+```
+
+## Apodization
+
+```{r PreprocessingWorkflow4, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+# FirstOrderPhaseCorrection
+Fid_data <- Apodization(Fid_data,Fid_info)
+# Représentation graphique des FID
+if(DrawFid==T) Draw(Re(Fid_data[WhichSpectra,Fid_window]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Apodization")
+```
+
+## Transformée de Fourier
+```{r PreprocessingWorkflow5, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+# FourierTransform
+Spectrum_data <- FourierTransform(Fid_data, Fid_info)
+# Représentation graphique des FID
+if(DrawSpectra==T) Draw(Re(Spectrum_data[WhichSpectra,Raw_Spec_window]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Fourier Transform")
+```
+
+# Prétraitements des spectres après la TF
+
+## Correction de phase d'ordre 0
+```{r PreprocessingWorkflow6, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+# ZeroOrderPhaseCorrection
+Spectrum_data <- ZeroOrderPhaseCorrection(Spectrum_data)
+
+# Représentation graphique des spectres
+if(DrawSpectra==T)  Draw(Re(Spectrum_data[WhichSpectra,Raw_Spec_window]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="ZeroOrderPhaseCorrection")
+```
+
+
+## Alignement par rapport au pic de référence (le TMSP) 
+```{r PreprocessingWorkflow7, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+Spectrum_data <- InternalReferencing(Spectrum_data, Fid_info)
+# Représentation graphique des spectres
+if(DrawSpectra==T)  Draw(Re(Spectrum_data[WhichSpectra,Raw_Spec_window]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Internal Referencing")
+```
+
+## Baseline correction
+```{r PreprocessingWorkflow8, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+
+Spectrum_data <- BaselineCorrection(Spectrum_data, lambda.bc = 1e+08, p.bc = 0.01)
+# Représentation graphique des spectres
+if(DrawSpectra==T)  Draw(Re(Spectrum_data[WhichSpectra,Raw_Spec_window]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Internal Referencing")
+```
+
+## Suppression des valeurs négatives
+```{r PreprocessingWorkflow9, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+
+Spectrum_data <- NegativeValuesZeroing(Spectrum_data)
+# Représentation graphique des spectres
+if(DrawSpectra==T)  Draw(Re(Spectrum_data[WhichSpectra,Raw_Spec_window]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Negative Values Zeroing")
+```
+
+## Alignement - Warping
+```{r PreprocessingWorkflow10, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+if(dowarping==TRUE) Spectrum_data <- Warping(Spectrum_data,reference.choice = "before")
+# Représentation graphique des spectres
+if(DrawSpectra==T)  Draw(Re(Spectrum_data[WhichSpectra,Raw_Spec_window]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Warping")
+```
+
+## Window selection and Bucketing
+```{r PreprocessingWorkflow11, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+Spectrum_data <- WindowSelection(Spectrum_data, from.ws = 10, to.ws = 0.2)
+# Bucketing avec le Window selection intégré
+Spectrum_data <- Bucketing(Spectrum_data, intmeth = "t",mb=mb)
+# Représentation graphique des spectres
+if(DrawSpectra==T) Draw(Re(Spectrum_data[WhichSpectra,]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Bucketing")
+```
+
+## Suppression des régions non informatives
+```{r PreprocessingWorkflow13, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+# Choix de la région à supprimer
+Spectrum_data <-  RegionRemoval(Spectrum_data, typeofspectra =typeofspectra)
+# Représentation graphique des spectres
+if(DrawSpectra==T) Draw(Re(Spectrum_data[WhichSpectra,]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Region Removal")
+```
+
+## Agregation de zones 
+```{r PreprocessingWorkflow14, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+# Normalization
+Spectrum_data <- ZoneAggregation(Spectrum_data, 
+fromto.za = list(Citrate =c(2.5, 2.7)))
+# Représentation graphique des spectres
+if(DrawSpectra==T) Draw(Re(Spectrum_data[WhichSpectra,]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Normalization")
+```
+
+## Normalisation
+```{r PreprocessingWorkflow15, warning= FALSE, message=FALSE, results = 'hide', cache = TRUE}
+# Normalization
+Spectrum_data <- Normalization(Spectrum_data,type.norm="mean")
+# Représentation graphique des spectres
+if(DrawSpectra==T) Draw(Re(Spectrum_data[WhichSpectra,]), type.draw = "signal", subtype = "stacked", num.stacked=NumStack,xlab="Normalization")
+
+```
+
+# Exportation des résultats
+```{r}
+# Sauvegarde des spectres traités en Rdata et fichier Csv
+Re_Spectrum_data=Re(Spectrum_data)
+if (save == TRUE) {save(Re_Spectrum_data, Fid_info, file=paste0(out.path,dataname,".RData"))
+ }
+if (export == TRUE) {
+utils::write.table(Re_Spectrum_data, file = paste0(out.path,dataname,".csv"),sep=" ;")
+utils::write.table(Fid_info, file = paste0(out.path, "/",dataname , "_FidInfo.csv"),sep=" ;")
+# ATTENTION le fichier CSV qui sort à une cellule qui manque au dessus à gauche.  Il faut donc, à la main, ouvrir le fichier et reculer les ppms de la première ligne
+}
+```
+
+# Visualisation des spectres finaux
+```{r VisualisationSpectr, results='asis', out.width='50%', fig.show='hold', warning= FALSE, message=FALSE }
+# Visualisation des spectres finaux
+# Signals
+Draw(Re_Spectrum_data, type.draw = "signal", subtype = "stacked", num.stacked=6)
+# PCA scores (and loadings)
+Draw(Re_Spectrum_data, type.draw = "pca", type  = "scores", Class = group, axes = c(1:2))
+Draw(Re_Spectrum_data, type.draw = "pca", type  = "scores", Class = group, axes = c(3:4))
+```
+
+# Etude de la répétabilité spectrale
+```{r paramsMIC}
+#============ PARAMETRES A MODIFIER
+dataset = Re_Spectrum_data
+ncompPCA = 4
+nClust = 4
+nLVPLSDA = 4
+```
+
+## Inertia
+
+```{r Inertia}
+# INERTIA
+
+Inertia.res = MBXUCL::Inertia(x = dataset, y = groupN, print = FALSE)
+pander(Inertia.res[["Between_within"]])
+pander(Inertia.res[["Per_group"]])
+
+```
+
+## PCA
+```{r PCA}
+# PCA
+PCA.res = MBXUCL::SVDforPCA(dataset, ncomp=ncompPCA)
+
+```
+
+Eigenvalues:
+
+```{r eigPCA}
+pander(PCA.res[["eigval"]][1:4])
+```
+
+```{r PCAScoresplot, out.width = '70%'}
+DrawScores(PCA.res, drawNames=TRUE, type.obj = "PCA",
+        createWindow=FALSE, main = paste0("PCA score plot for ", dataname),
+        color = group, pch = group,axes =c(1,2), )
+```
+
+
+```{r PCAloadingsplot}
+DrawLoadings(PCA.res,type.obj = "PCA",
+        createWindow=FALSE, main = paste0("PCA loadings plot for", dataname),
+        axes = c(1:2),  loadingstype="l", num.stacked = 2)
+```
+
+
+## Unsupervised clustering
+
+```{r ClustMIC}
+ClustMIC.res = MBXUCL::ClustMIC(Intensities = dataset, nClust = nClust, Trcl = groupN, Dendr = FALSE)
+pander(ClustMIC.res)
+```
+
+
+## PLS-DA
+
+```{r PLSDA, out.width = '70%'}
+PLSDA.res = PLSDA(x = dataset, y = group, nLV = nLVPLSDA, drawRMSEP = TRUE)
+perf.plsda = PLSDA.res[4:6]
+pander(perf.plsda)
+```
+
+
+```{r PLSDAScoresplot, out.width = '70%'}
+DrawScores(PLSDA.res, drawNames=TRUE, type.obj = "PLSDA",
+        createWindow=FALSE, main = paste0("PLSDA score plot for ", dataname),
+        color = group, pch = group,axes =c(1,2))
+```
+
+
+```{r PLSDAloadingsplot}
+DrawLoadings(PLSDA.res,  type.obj = "PLSDA",
+        createWindow=FALSE, main = paste0("PLSDA loadings plot for", dataname),
+        axes = c(1:2),  loadingstype="l", num.stacked = 2)
+
+```
+

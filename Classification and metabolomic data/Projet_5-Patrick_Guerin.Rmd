@@ -1,0 +1,712 @@
+---
+title: "Projet 5: Modèles de classification et données métabolomiques"
+author: "Patrick Guerin"
+date: '`r format(Sys.time(), "%B %d, %Y,%H:%M")`'
+output:
+  html_document: 
+    code_folding: hide
+    collapsed: yes
+    fig_caption: yes
+    fig_width: 6
+    highlight: tango
+    number_sections: yes
+    theme: united
+    toc: yes
+    toc_float: yes
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(devtools)
+#install_github("ManonMartin/MBXUCL", force = TRUE)
+# install.packages("randomForest")
+require(knitr) 
+require(pander) # Librairie pour afficher des tableaux
+require(pls) # librairie pls Ron Wehrens
+require(MBXUCL) # Librairie MBX de l'ISBA-SMCS
+require(ropls) # Librairie o-pls E. Thevenot
+require(penalized) # Librairie pour faire de la rC)gression ridge et lasso
+require(randomForest)
+
+```
+
+
+# Importation des données
+
+```{r readData}
+# Choix du chemin d'accC(s (C  modifier par votre rC)pertoire)
+# lecture du data frame
+data<-read.csv("C:/Users/p/Desktop/CarreLatinMBXmanualPPMINV.csv",sep=";",header=TRUE)
+set.seed(1)
+```
+
+# Préparation des données 
+
+```{r}
+# DC)finition des matrices de donnC)es et tailles associC)es
+n=dim(data)[1]
+m=dim(data)[2]-1
+X=apply(data[,1+(1:m)],2,as.numeric)
+TypeY=rep(c("A","B","C"),c(27,27,27))
+classY=as.numeric(as.factor(TypeY)) # classe 1, 2 et 3 utile pour les graphiques
+# On extrait les noms des variables, on enlC(ve le "X" et on les remets comme noms de variables
+ppm=as.numeric(substr(dimnames(X)[[2]],2,6))
+# On mets les noms des spectres comme non des lignes de X
+dimnames(X)[[1]]=data[,1]
+# Centrage des spectres
+XC=scale(X,center=T,scale=F)
+# DC)finition de variables pour les graphiques
+Xylab="IntensitC)" 
+Xxlab="ppm"
+Xval=ppm  
+Ylab="Sujet"
+
+var_names <- colnames(X)
+Xcat=T
+```
+
+
+
+# Graphiques des données
+
+## Dessin des spectres
+```{r}
+par(mfrow=c(1,1))
+plot(Xval,X[1,],ylim=c(min(X),max(X)),type="l",ylab=Xylab,xlab=Xxlab,main="Spectres")
+abline(h=0,lt=2)
+for(i in 2:n) lines(Xval,X[i,],col=i)
+```
+
+# Analyse en composantes principales des données spectrales
+
+## PCA des spectres centrées avec la librairie MBX
+
+```{r}
+ncomp=8
+PCA.res = SVDforPCA(XC,ncomp = ncomp)
+```
+
+### Valeurs propres
+
+% de la variance expliquée par chaque variable
+
+```{r}
+eig.res=rbind(PCA.res$var,PCA.res$var*100/sum(PCA.res$var),PCA.res$cumvar)
+rownames(eig.res)=c("Variances","Prop Var","Cum Eigen Values")
+pander(eig.res)
+```
+
+### Scores
+
+Représentation graphique des scores pour les 4 premières composantes
+
+```{r , echo=TRUE, fig.height=5, fig.show='hold', fig.width=5, warning=FALSE, out.width='50%'}
+DrawScores(PCA.res, type.obj = "PCA", drawNames=TRUE,createWindow=FALSE, main = paste("PCA score plot for PC1 and PC2"), axes =c(1,2),pch=classY, col=classY)
+DrawScores(PCA.res, type.obj = "PCA", drawNames=TRUE,createWindow=FALSE, main = paste("PCA score plot for PC3 and PC4"), axes =c(3,4), pch=classY, col=classY)
+```
+
+### Graphe des loadings 
+
+```{r, echo=TRUE, fig.height=4, fig.show='hold',out.width='100%'}
+DrawLoadings(PCA.res, type.obj = "PCA", createWindow=FALSE,
+    axes = c(1:4),  loadingstype="l",xlab=Xxlab,ang="90",xaxis="character",nxaxis=10)
+```
+
+# Extraction des données utilisées pour la classification : groupes B et C
+
+Suite aux résultats donnés par l'analyse par composantes principales on voit que les groupes B et C sont bien discriminés par le second Axe, on choisit d'analyser ces deux groupes.
+
+Le graph des loadings montre que deux variables en particulier ont une grande importance sur l'axe 1.
+
+Quatre modèles différents seront testés pour classifier les échantillons de sang, les résultats de chacun de ces modèles sont stockés dans une matrice.
+
+```{r}
+# On choisit les patients B et C
+ind=TypeY!="A"
+X=data.frame(X[ind,])
+obsnames=rownames(X)
+n=dim(X)[1]
+TypeY=TypeY[ind]
+classY=as.numeric(as.factor(TypeY)) # classe 1, 2 et 3 utile pour les graphiques
+# Centrage des spectres
+XC=scale(X,center=T,scale=F)
+XC <- data.frame(XC)
+YL=classY-1  # Variable 0, 1 pour la classification
+YC=scale(YL,center=T,scale=F)
+classY=YL
+
+RMSE <- function(y_true, y_fit) {
+  n <- length(y_true)
+  sqrt((1/n)*sum((y_true-y_fit)^2))
+}
+
+##################
+# kfoldCV
+##################
+
+# fonction qui fait de la k-fold CV sur une fonction de rC)gression prC)dC)finie prC)disant y (FUN)
+kfoldCV=function(X, Y, k, FUN = ypred_FUN, seed=100, ...) {
+  # Inputs
+    # X, la matrice des rC)gresseurs 
+    # Y, le vecteur des rC)ponses 
+    # k, le nombre de segments et 
+    # FUN : la fonction de rC)gression qui prC)dit Y 
+  # Outputs : 
+    # ypred.cv, les prC)dictions par CV
+
+  # 1. definition de k segments aleatoires
+  n=dim(X)[1]
+  set.seed <- seed
+  indx <- sample(1:n,n)
+  nseg <- k
+  sn <- ceiling(n/k) # taille des segments
+  
+  # 2. boucle sur les sous-echantillons
+  # pour calculer y-fit par cv
+  yfit.cv <- numeric()
+  for (i in 1:nseg) {
+    if(i < nseg) {indseg <- indx[(i-1)*sn + (1 : sn)]}
+    else {indseg <- indx[((i-1) * sn + 1) : n]}
+    Y.train <- Y[-indseg]
+    X.train <- X[-indseg,]
+    X.valid <- X[indseg,]
+    yfitcv <- FUN(X = X.train, Y = Y.train, XV = X.valid, ...)
+    yfit.cv[indseg] <- yfitcv
+  }
+  
+  # 3. Sortie de la fonction
+  return(yfit.cv)
+  }
+
+
+# DC)finition de paramC(tres de modC)lisation
+# nombre de segments en cross validation
+k <- 6
+# Nombre de composantes max
+NCmax=10
+# Liste des modC(les
+modnames <- c('PLSR','O-PLS','Logistique-LASSO','Random Forest')
+nmodels <- length(modnames) # nombre de modC(les C)valuC)s
+# Preparation des matrices de rC)sultats
+# Matrice des RMSE
+RMSEMat <- matrix(nrow = nmodels, ncol = 3)
+colnames(RMSEMat) <- c('RMSE-train','RMSE-CV','Taille du modèle')
+rownames(RMSEMat) <- modnames
+# Matrice des coefficients (pour tous les modC(les sauf RF)
+CoefficientMat <- matrix(0, ncol = m, nrow = nmodels-1)
+colnames(CoefficientMat) <- colnames(XC)[1:m]
+rownames(CoefficientMat) <- modnames[-nmodels]
+# Matrice des prC)dictions
+PredMat <- matrix(nrow = n, ncol = nmodels)
+colnames(PredMat) <- modnames
+# Tout est mis dans une liste qui sera remis C  jour modC(le par modC(le
+listr=list(CoefficientMat=CoefficientMat,RMSEMat=RMSEMat,PredMat=PredMat)
+
+
+# crC)ation d'une fonction pour stocker et imprimer les rC)sultats de chaque modC(le 
+printresmod=function(i,YC,yfit,yfitCV,coef,parmod,listr,pcoef=T)
+{
+  # i = NB0 du modC(le
+  # YC : rC)ponses observC)e
+  # yfit : rC)ponses prC)dites
+  # yfitCV : rC)ponses prC)dites par CV
+  # coef : vecteur des coefficients
+  # parmod paramC(tre de dimension ou de lissage du modC(le
+  # pcoef : T/F pour indiquer si des coefficient sont dispo pour le modC(le (pas le cas pour les RF)
+par(mfrow=c(1,2))
+plot(YC,yfit,pch=20,main="Y-Yfit")
+plot(YC,yfitCV,pch=20,main="Y-YfitCV",ylab="yfitCV")
+# calcul des RMSE 
+n=length(YC)
+listr$RMSEMat[i,1]=sqrt(sum((YC-yfit)^2)/n)
+listr$RMSEMat[i,2] =sqrt(sum((YC-yfitCV)^2)/n)
+listr$RMSEMat[i,3] = parmod 
+# RC)cupC)ration des coefficients et des rC)ponses
+if(pcoef==T) listr$CoefficientMat[i,]=coef
+listr$PredMat[,i]=yfit
+# affichage de rC)sultats
+  pander(listr$RMSEMat[i,])
+  par(mfrow=c(1,1))
+if(pcoef==T){  
+if(Xcat==F){plot(Xval,listr$CoefficientMat[i,],type="l",ylab="Coefficients",main=paste("Coefficients ",dimnames(coefficient)[[1]][i]),xlab=Xxlab)
+ abline(h=0)}
+if(Xcat==T){dotchart(coef,labels=colnames(coef),
+           xlab="Coefficients",main=paste("Coefficients - ",modnames[i])) } 
+}
+return(listr)
+}
+```
+
+# Régression logistique stepwise
+
+Il n'est pas possible d'utiliser correctement cette technique puisque un problème d'identification se pose étant donné que le nombre de regresseurs est plus important que le nombre d'observations.
+
+```{r,warnings=F}
+# # Ajustement du modC(le de regression stepwise forward
+# null <- glm(classY ~ 1, data=XC,family="binomial") # modele de depart
+# full <- glm(classY ~ ., data=XC,family="binomial") # modele avec toutes les variables
+# fit.sw <- step(null, scope=list(lower=null, upper=full), direction="both",trace=0) # critC(re d'opimisation= AIC
+# 
+# pander(summary.glm(fit.sw))
+# yfit.train <- fit.sw$fitted.values
+# namessw=names(coefficients(fit.sw))
+# coef <- CoefficientMat[1,]
+# coef[namessw[-1]]=coefficients(fit.sw)[-1]
+# nc <- length(coef)-1
+# 
+# ypred_FUN <- function(X,Y,XV,...){
+#   null <- glm(Y ~ 1, data = X,family = "binomial")
+#   full <- glm(Y ~ ., data = X,family = "binomial")
+#   fit.sw <- step(null, scope = list(lower = null,
+#                                     upper = full),
+#                  direction="both",trace=0)
+#   coef <- coefficients(fit.sw)
+# 
+#   XV <- cbind(1, XV[,names(coef)[-1]])
+#   yfit.cv <- as.matrix(XV) %*% coef
+#   yfit.cv <- exp(yfit.cv)/(1+exp(yfit.cv))
+#   return(yfit.cv)
+# }
+# 
+# yfit.cv  <- kfoldCV(X = XC, Y = classY, k = k, FUN = ypred_FUN)
+# 
+# # Sauvegardes et impression de rC)sultats
+# listr=printresmod(1,classY,yfit.train,yfit.cv,coef,nc,listr)
+
+```
+
+# Régression des moindres carrés partiels (PLS-DA)
+
+Le principe de cette méthode est de trouver les combinaisons linéaire qui expliquent le mieux la variation de la variable dépendante (ici une variable binaire)
+
+```{r plsr}
+# Recherche du nombre de composantes optimales par CV
+## dÃ©finition de la fonction d'estimation du modÃ¨le 
+ypred_FUN <- function(X, Y, XV, ...){
+  fit.plsr <- plsr(Y ~ . , data = X, ...)
+  coef <- coefficients(fit.plsr)
+  yfit.train <- as.matrix(XV) %*% coef
+  return(yfit.train)
+}
+## Boucle sur le nombre de composantes possibles: 1 Ã  NCmax
+RMSE.cv <- numeric()
+yfit.cv <- list()
+
+for(i in 1:NCmax) {
+  res.cv <- kfoldCV(X = XC, Y = YC, k = k, 
+                    FUN = ypred_FUN, 
+                    ncomp = i)
+  yfit.cv[[i]] <- res.cv
+  RMSE.cv[i] <- RMSE(y_true = classY, y_fit = yfit.cv[[i]])
+}
+
+
+# Recherche du nombre de composantes Ã  garder
+
+plot(1:10, RMSE.cv, type = "o", main = "RMSE cross-validation")
+ncomp.opt = which.min(RMSE.cv)
+ncomp.opt = max(2, ncomp.opt)
+abline(v = ncomp.opt, col = 2, lty = 2)
+
+RMSE.cv <- RMSE.cv[ncomp.opt] 
+yfit.cv <-  yfit.cv[[ncomp.opt]] + mean(classY)
+
+# Ajustement du modÃ¨le avec le nombre optimal de composantes
+fit.plsr <- plsr(YC ~ . , data = data.frame(XC), 
+                 ncomp = ncomp.opt)
+print(summary(fit.plsr))
+yfit.train <- fit.plsr$fitted.values[, , ncomp.opt] + mean(classY)
+coef <- coefficients(fit.plsr)[, , ]
+nc <- ncomp.opt
+
+# Sauvegardes et impression de rÃ©sultats
+listr=printresmod(1,classY,yfit.train,yfit.cv,coef,nc,listr)
+
+```
+
+La cross-validaton basée sur la minimisation sur RMSE indique que le nombre de composants optimal est 7. Les 7 premiers composant expliquent 99.92% de la variance de notre variable dépendante.
+
+Le graphique des coefficients PLSR montre qu'un grand nombre de variables est utilisé par le modèle.
+
+Le graphique des valeurs prédites contre les valeur observé montre que la méthode sépare parfaitement les deux groupes.
+
+### Scores
+
+Représentation graphique des scores des individus pour les 2 premières composantes avec la librairie MBX
+
+
+```{r , echo=TRUE, fig.height=5, fig.show='hold', fig.width=5, warning=FALSE}
+par(mfrow=c(1,1))
+# graphe des scores avec la librairie MBXUCL
+ScatterPlot(fit.plsr$scores[,1],fit.plsr$scores[,2], createWindow=FALSE, points_labs =obsnames, main = paste("PLS score plot for PC1 and PC2"),  color=classY, pch=classY,xlab="PC1",ylab="PC2")
+
+```
+
+### Graphe des loadings 
+
+```{r, echo=TRUE, fig.height=4, fig.show='hold',out.width='100%'}
+par(mfrow=c(1,2))
+loadings <- fit.plsr$loadings
+# sep<-c(0,30,60,90,120,150,180,210,238)
+for (i in 1:2) {
+  # for (j in 1 : 8){
+    plot(loadings[,i], type="h", xaxt="n", xlab="",
+     ylab = "Loading", main = paste0("Loading ", i), lwd = 3)
+axis(side = 1,  at = 1:length(var_names), labels = var_names, las=2, cex.axis=0.7)
+  # }
+}
+
+```
+
+## Orthogonal partial least squares
+
+L'OPLs permet de modéliser les variations lié à notre variable dépendante en gardant une seule variable prédictive, cela a pour avantage de faciliter l'interprétation des résultats tout en permettant d'analyser la variabilité de nos variables explicatives qui ne sont pas corrélées à la variable dépendante
+
+```{r opls,results="hide",warning=FALSE}
+
+fit.opls <- opls(x = X, y = YL, predI = 1, 
+                 orthoI = 4, scaleC = "center", 
+                 printL = TRUE, plotL = FALSE)
+
+# Recherche du nombre de composantes optimales par CV
+## dÃ©finition de la fonction d'estimation du modÃ¨le 
+ypred_FUN=function(x,y,XV,...) {
+  fit.opls <- opls(x = X, y = YL, predI = 1, 
+                   scaleC = "center" , ...)
+  ropls::predict(fit.opls, XV)
+}
+
+## Boucle sur le nombre de composantes possibles
+RMSE.cv <- numeric()
+yfit.cv <- list()
+
+NCmax=10
+for(i in 1:NCmax) {
+  rescv <- kfoldCV(X, YL, k = k, FUN = ypred_FUN, 
+                   orthoI = i, printL = FALSE, 
+                   plotL = FALSE)
+  yfit.cv[[i]] <- rescv
+  RMSE.cv[i] <- RMSE(y_true = YL, y_fit = yfit.cv[[i]])
+}
+
+# Recherche du nombre de composantes à garder
+# plot(RMSE.cv, type = "o", main = "RMSE cross-validation")
+ncomp.opt <- which.min(RMSE.cv)
+ncomp.opt <- max(2, ncomp.opt)
+yfit.cv <-  yfit.cv[[ncomp.opt]] 
+
+# Ajustement du modÃ¨le avec le nombre optimal de composantes
+fit.opls <- opls(x = XC, y = classY, predI = 1, orthoI = ncomp.opt, 
+     scaleC = "center", printL = TRUE, plotL = FALSE)
+yfit.train <- ropls::predict(fit.opls, X)
+coef <- fit.opls@weightMN %*% fit.opls@cMN
+nc <- ncomp.opt 
+
+# #add 0 to coef
+coef2 = matrix(nrow = 238,ncol=1)
+coef2 = as.matrix(as.numeric((c(coef[1:101],rep(0,14),coef[102:224]))))
+rownames(coef2)=colnames(CoefficientMat)
+colnames(coef2)<-"p1"
+
+listr=printresmod(2,classY,yfit.train,yfit.cv,coef2,nc,listr)
+
+
+```
+
+Ici encore un grand nombre de variables semblent importantes pour discriminer nos deux groupes
+
+
+### Scores
+
+Représentation graphique des scores OPLS 
+
+```{r , echo=TRUE, fig.height=5, fig.show='hold', fig.width=5, warning=FALSE}
+
+scores_p <- fit.opls@scoreMN
+scores_o <- fit.opls@orthoScoreMN
+
+par(mfrow=c(1,1))
+# graphe des scores avec la librairie MBXUCL
+ScatterPlot(scores_p[,1], scores_o[,1], createWindow=FALSE, points_labs =obsnames, main = paste("O-PLS score plot for PCP and PCO1"),  color=classY, pch=classY,xlab="PCPredictive",ylab="PCO1")
+
+
+```
+
+On voit que notre composante permet une séparation parfaite des deux groupes.
+
+
+### Graphe des loadings 
+
+Ci-dessous les graphs des loadings permettent de voir quel sont les variables impliquées dans l'axe prédictif ou dans le prmeier axe orthogonal.
+
+```{r, echo=TRUE, fig.height=4, fig.show='hold',out.width='100%'}
+
+loadings_p <- fit.opls@loadingMN
+loadings_o <- fit.opls@orthoLoadingMN
+
+plot(loadings_p, type="h", xaxt="n", xlab="", ylab = "Loading", 
+     main ="Loading prédictif", lwd = 3)
+axis(side = 1,  at = 1:length(var_names), labels = var_names, las=2, cex.axis=0.7)
+
+plot(loadings_o[,1], type="h", xaxt="n", xlab="", ylab = "Loading", 
+     main ="Loading orthogonal 1", lwd = 3)
+axis(side = 1,  at = 1:length(var_names), labels = var_names, las=2, cex.axis=0.7)
+
+```
+
+## Régression logistique avec LASSO
+
+En imposant une contrainte sur la somme des coefficients d'une régression (pénalisation de la norme $\ell _{1}$il est possible de faire de la sélection de variable tout en ajustant notre modèle.
+
+```{r,warning=F}
+# Ajustement du modÃ¨le de regression pénalisé avec toutes les données
+# lambda1=> LASSO
+
+fit.lasso <- penalized(response = YL, penalized = XC, model =  "logistic",
+                       lambda1 = 0.1, lambda2 = 0,  trace = FALSE)
+
+
+# Optimisation du paramÃ¨tre lambda2 par cross-validation
+lambda1 <- optL1(response = YL, penalized = XC,   
+                lambda2 = 0, model =  "logistic",
+                trace=0)$lambda
+
+# Regression logistique ridge avec lambda optimisÃ©
+fit.lasso <- penalized(response = YL, penalized = XC,  model =  "logistic",
+                       lambda2 = 0, lambda1 = 0.01, trace = FALSE)
+
+yfit.train = attr(fit.lasso,'fitted')
+
+coef <- attr(fit.lasso,'penalized') 
+nc = sum(!(coef)==0)
+
+# Calcul du  yfit.cv 
+# fonction pour obtenir les y prÃ©dits (c'est la m^Ãªme que la prÃ©cÃ©dente)
+ypred_FUN = function(X, Y, XV, ...){
+  fit.penalized <- penalized(response = Y, penalized = X, 
+                         model =  "logistic", trace=FALSE, ...)
+  
+  penalizedcoeff <- attr(fit.penalized,'penalized') 
+  intercept <- attr(fit.penalized,'unpenalized') 
+  coef <- c(intercept, penalizedcoeff)
+  
+  yfit.cv=as.matrix(cbind(1,XV))%*%coef
+  yfit.cv = exp(yfit.cv)/(1+exp(yfit.cv))
+  return(yfit.cv)
+}
+
+yfit.cv  <- kfoldCV(X, YL, k = k, FUN = ypred_FUN, 
+                 lambda1 = 0.01, lambda2 = 0)
+
+
+# Sauvegardes et impression de rÃ©sultats
+listr=printresmod(3,classY,yfit.train,yfit.cv,coef,nc,listr)
+
+```
+
+On peut voir que sous la contrainte $\ell _{1}=0.1$, seules deux variables sont retenues
+
+##  Random Forest
+
+```{r, eval=TRUE}
+fit.rf <- randomForest(formula=as.factor(classY) ~ ., data=X,  ntree=500, mtry=3)
+# Recherche du nombre de composantes optimales par CV
+## dÃ©finition de la fonction d'estimation du modÃ¨le 
+
+ypred_FUN <- function(X,Y,XV,...) {
+  fit.rf <- randomForest(formula=as.factor(Y) ~ ., data = X, ntree = 500, ...)
+  yfit.cv <- predict(fit.rf, newdata = XV,  type = 'class')
+  yfit.cv
+}
+
+## Boucle sur le nombre de composantes possibles
+RMSE.cv <- numeric()
+yfit.cv <- list()
+
+j <- 1
+mtry_tested <- seq(3,19, 2)
+for(i in mtry_tested) {
+  rescv <- kfoldCV(X, classY, k = k,  FUN = ypred_FUN, mtry = i)
+  yfit.cv[[j]] <- rescv
+  yfit <- as.numeric(yfit.cv[[j]]) - 1
+  RMSE.cv[j] <- RMSE(y_true = classY, y_fit = yfit)
+  j <- j + 1
+}
+
+# Recherche du nombre de composantes à garder
+
+plot(mtry_tested,RMSE.cv, type = "o", main = "RMSE cross-validation")
+mtry.opt <- mtry_tested[which.min(RMSE.cv)]
+abline(v = mtry.opt, col = 2, lty = 2)
+yfit.cv <- as.numeric(yfit.cv[[which.min(RMSE.cv)]])-1
+
+# Ajustement du modÃ¨le avec le nombre optimal de mtry
+fit.rf <- randomForest(formula=as.factor(classY)
+                       ~ ., data = X, 
+                       ntree=500, mtry=mtry.opt)
+
+yfit.train <- predict(fit.rf, newdata = X, type='class')
+yfit.train <- as.numeric(yfit.train)-1
+nc = m
+
+
+# Sauvegardes et impression de rÃ©sultats
+listr=printresmod(4,classY,yfit.train,yfit.cv,coef,nc,listr,pcoef=F)
+```
+
+En minimisant le RMSE de plusieurs Random Forest par cross-validation, on trouve que le nombre idéal de candidats pour chaque noeuds est de 5.
+
+On voit aussi que le modèle classifie parfaitement nos échantillons.
+
+
+#Models comparison
+
+## Matrice des RMSE en estimation et k-fold-validation 
+```{r, result = 'asis'}
+pander(listr$RMSEMat)
+```
+
+## Plots des coefficients
+```{r}
+
+for(i in 1:(nmodels-1)) {
+  dotchart(listr$CoefficientMat[i,],labels=colnames(listr$CoefficientMat),
+           xlab="Coefficients",main=paste("Coefficients - ",modnames[i]))
+  }  
+
+```
+
+
+## Scatter Plot matrix of predictions:
+
+La matrice des prédictions ci-dessous nous permet de comparer les prédiction des différentes méthodes employéées, on peut constater que toutes les méthodes on des résultats très similaire, même si le Random Forest ne renvoit un output binaire plutôt que continu.
+
+```{r, fig.width = 10, fig.height = 10, out.width = '100%'}
+
+# Scatter Plot matrix of predictions
+pairs(listr$PredMat,main="Scatter Plot Matrix of predictions")
+
+```
+
+## Courbes ROC 
+
+Les courbes ROC montre une classification parfaite (!)
+```{r, fig.width = 9, fig.height = 9, out.width = "80%"}
+
+# Courbes de ROC
+cutoff <- seq(min(listr$PredMat)-0.1,max(listr$PredMat)+0.1,by=c(0.01))
+nco <- length(cutoff)
+truepositive <- matrix(nrow=nco,ncol=nmodels)
+falsepositive <- matrix(nrow=nco,ncol=nmodels)
+npos <- sum(classY==1)
+nneg <- sum(classY==0)
+listpos <- (classY==1)
+listneg <- (classY==0)
+
+for(i in 1:nco){
+  for(j in 1:nmodels) {
+    # Rate of true positives in the set of positive 
+    truepositive[i,j] <- sum(listr$PredMat[listpos,j]>=cutoff[i])/npos
+    # Rate of false positives in the set of negatives
+    falsepositive[i,j] <- sum(listr$PredMat[listneg,j]>=cutoff[i])/nneg
+    }
+  }
+
+plot(falsepositive[,1],truepositive[,1],type="l",main="ROC Curves Q-PCR Models",
+     xlab="False Positive Rate",ylab="True Positive Rate")
+
+for(j in 2:nmodels){
+  lines(falsepositive[,j],truepositive[,j],type="l",col=j,lty=j)
+  }
+legend(0.6,0.75,dimnames(listr$PredMat)[[2]],col=1:nmodels,lty=1:nmodels)
+
+```
+
+## Matrices de confusion avec les cut-offs optimaux 
+
+Enfin, on peut trouver la règle de décision optimale qui permet une classification parfaite pour chaucn de nos modèles:
+
+```{r}
+
+# Recherche des seuils optimaux qui minimisent la distance au point (0,1)
+cutoffopt=listr$PredMat[1,]
+for(i in 1:nmodels){ 
+  distances2 <- falsepositive[,i]^2+(1-truepositive[,i])^2
+  cutoffopt[i] <- cutoff[which(distances2==min(distances2))][1]
+  }  
+pander(t(cutoffopt))
+
+# Dessin des cutoff sur un scatter plot
+for(i in 1:nmodels){ 
+  plot(YC,listr$PredMat[,i],main=paste("Cut-offs - Method:",
+                 dimnames(listr$PredMat)[[2]][i]),ylab="Prediction")
+  
+  abline(h=cutoffopt[i])
+  } 
+
+
+PredictClass <- matrix(nrow = n, ncol = nmodels)
+dimnames(PredictClass) <- dimnames(listr$PredMat)
+TrueClass <- rep(1,n)
+
+for(i in 1:nmodels){
+PredictClass[,i] <- listr$PredMat[,i]>=cutoffopt[i]
+}
+
+# Calcul les nombres de bien classÃ©s avec les seuils optimaux
+ClassTable <- matrix("",nrow = nmodels * 3, ncol = 2)
+dimnames(ClassTable)[[1]] <- rep(c("","Class0","Class1"),nmodels)
+
+dimnames(ClassTable)[[2]] <- c("FALSE","TRUE")
+dimnames(ClassTable)[[1]][((1:nmodels)*3)-2] <- modnames
+
+for(i in 1:nmodels){
+  ClassTable[(i-1)*3+(2:3),] <- table(classY,PredictClass[,i]) 
+}
+
+cat("Classification Tables")
+pander(ClassTable)
+
+
+# accuracy 
+pc.accuracy <- c()
+for(i in 1:nmodels){
+  pc.accuracy[i] <- sum(diag(table(classY,PredictClass[,i])))/n
+  }
+
+pc.accuracy <- as.matrix(pc.accuracy)
+colnames(pc.accuracy) <- "pc.accuracy"
+rownames(pc.accuracy) <- modnames
+pander(pc.accuracy)
+```
+
+Les matrices de confusion et la mesure de l'accuracy illustrent la classification sans faute.
+
+# Identifiez, pour chaque méthode une liste de variables (ppm) ou de pics du spectre qui vous permettent de séparer le mieux les 2 patients
+
+Pour cela, on identifie les 10 variables associées aux plus fort coefficients dans chacun des modèles:
+
+```{r}
+get_variables=function(i){
+col=c("PLS","OPLS","Lasso")
+
+res= data.frame(listr$CoefficientMat[i,])
+names=rownames(res)[order(-abs(res))]
+res=data.frame(res[order(-abs(res)),])
+names=names[1:10]
+res=data.frame(res[1:10,])
+row.names(res)=names
+
+colnames(res)=col[i]
+return(res)
+
+}
+pander(get_variables(1))
+
+pander(get_variables(2))
+
+pander(get_variables(3))
+
+
+```
+
+On observe que la PLS a beaucoup de variables avec un fort coefficient tandis qu'avec l'OPLS celles-ci se font moins nombreuses. Enfin, le Lasso remplit bien son rôle en ne retenant que deux variables.

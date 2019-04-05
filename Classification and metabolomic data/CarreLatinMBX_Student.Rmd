@@ -1,0 +1,168 @@
+---
+title: "Analyse données carré latin MBX"
+author: "Bernadette Govaerts"
+date: '`r format(Sys.time(), "%B %d, %Y,%H:%M")`'
+output:
+  html_document: # options pour sortie HTML
+    code_folding: hide #  Cache le code  
+    collapsed: yes # Crée un document unique 
+    fig_caption: yes # Figures encapsulées ? 
+    fig_height: 5 # Hauteur par défaut des figures
+    fig_width: 6 # Largeur par défaut des figure
+    highlight: tango # style de mise en valeur du code
+    number_sections: yes # Ajout table des matières 
+    theme: united  # Style du document
+    toc: yes # Table des matiere ?
+    toc_depth: 3  # Profondeur table des matière
+    toc_float: yes # table des matière flottante
+  pdf_document: # options pour sorties pdf
+    toc: yes
+    toc_depth: '3'
+  word_document: default
+editor_options: 
+  chunk_output_type: console
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(devtools)
+#install_github("ManonMartin/MBXUCL", force = TRUE)
+require(knitr) 
+require(pander) # Librairie pour afficher des tableaux
+require(pls) # librairie pls Ron Wehrens
+require(MBXUCL) # Librairie MBX de l'ISBA-SMCS
+require(ropls) # Librairie o-pls E. Thevenot
+require(penalized) # Librairie pour faire de la régression ridge et lasso
+```
+
+
+# Importation des données
+
+```{r readData}
+# lecture du data frame
+data<-read.csv("C:/Users/p/Desktop/CarreLatinMBXmanualPPMINV.csv",sep=";",header=TRUE)
+```
+
+# Préparation des données 
+
+```{r}
+# Définition des matrices de données et tailles associées
+n=dim(data)[1]
+m=dim(data)[2]-1
+X=apply(data[,1+(1:m)],2,as.numeric)
+TypeY=rep(c("A","B","C"),c(27,27,27))
+classY=as.numeric(as.factor(TypeY)) # classe 1, 2 et 3 utile pour les graphiques
+# On extrait les noms des variables, on enlève le "X" et on les remets comme noms de variables
+ppm=as.numeric(substr(dimnames(X)[[2]],2,6))
+# On mets les noms des spectres comme non des lignes de X
+dimnames(X)[[1]]=data[,1]
+# Centrage des spectres
+XC=scale(X,center=T,scale=F)
+# Définition de variables pour les graphiques
+Xylab="Intensité" 
+Xxlab="ppm"
+Xval=ppm  
+Ylab="Sujet"
+```
+
+
+
+# Graphiques des données
+
+## Dessin des spectres
+```{r}
+par(mfrow=c(1,1))
+plot(Xval,X[1,],ylim=c(min(X),max(X)),type="l",ylab=Xylab,xlab=Xxlab,main="Spectres")
+abline(h=0,lt=2)
+for(i in 2:n) lines(Xval,X[i,],col=i)
+```
+
+# Analyse en composantes principales des données spectrales
+
+## PCA des spectres centrées avec la librairie MBX
+
+```{r}
+ncomp=8 
+PCA.res = SVDforPCA(XC,ncomp = ncomp)
+```
+
+### Valeurs propres
+
+% de la variance expliquée par chaque variable
+
+```{r}
+eig.res=rbind(PCA.res$var,PCA.res$var*100/sum(PCA.res$var),PCA.res$cumvar)
+rownames(eig.res)=c("Variances","Prop Var","Cum Eigen Values")
+pander(eig.res)
+```
+
+### Scores
+
+Représentation graphique des scores pour les 4 premières composantes
+
+```{r , echo=TRUE, fig.height=5, fig.show='hold', fig.width=5, warning=FALSE, out.width='50%'}
+DrawScores(PCA.res, type.obj = "PCA", drawNames=TRUE,createWindow=FALSE, main = paste("PCA score plot for PC1 and PC2"), axes =c(1,2),pch=classY, col=classY)
+DrawScores(PCA.res, type.obj = "PCA", drawNames=TRUE,createWindow=FALSE, main = paste("PCA score plot for PC3 and PC4"), axes =c(3,4), pch=classY, col=classY)
+```
+
+### Graphe des loadings 
+
+```{r, echo=TRUE, fig.height=4, fig.show='hold',out.width='100%'}
+DrawLoadings(PCA.res, type.obj = "PCA", createWindow=FALSE,
+    axes = c(1:4),  loadingstype="l",xlab=Xxlab,ang="90",xaxis="character",nxaxis=10)
+```
+
+
+
+
+
+### 1- Choix des individus � comparer
+
+Sur base de la PCA on choisit de comparer les individus 2 et 3 car ils sont bien s�par�s par le deuxi�me axe de la PCA.
+
+
+```{r}
+# On choisit les patients A et C
+ind=TypeY!="A"
+X=X[ind,]
+n=dim(X)[1]
+TypeY=TypeY[ind]
+classY=as.numeric(as.factor(TypeY))-1
+# Centrage des spectres
+XC=data.frame(scale(X,center=T,scale=F))
+YL=data.frame(classY-1)  # Variable 0, 1 pour la classification
+X=cbind(XC,YL)
+
+```
+### R�gression logistique stepwise
+
+```{r,warning=F}
+# Ajustement du mod�le de regression stepwise forward
+full <- glm(classY ~ ., data=XC,family="binomial") # modele avec toutes les variables
+pander(summary(step(full)
+))
+```
+
+
+
+### Partial least square regression
+
+
+```{r plsr}
+install.packages('plsdepot')
+library(plsdepot)
+pls1 = plsreg1(X[1:238],X[239], comps = 2)
+summary(pls1)
+plot(X[1:238],X[239])
+```
+
+
+
+
+```{r,warning=F}
+
+```
+
+
+```{r,warning=F}
+
+```

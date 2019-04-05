@@ -1,0 +1,171 @@
+---
+title: "Multiple testing"
+author: "Céline Bugli"
+date: '`r format(Sys.time(), "%B %d, %Y,%H:%M")`'
+output:
+  html_document:
+    code_folding: hide
+    collapsed: yes
+    fig_caption: yes
+    fig_height: 5
+    fig_width: 6
+    highlight: tango
+    number_sections: yes
+    theme: united
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#install.packages(multtest)
+
+```
+
+```{r readData}
+qPCR_data = read.csv("C:/Users/bugli/Documents/CELINE_cours/LSTAT2340/donnees/data_qPCR.csv", sep = ";", dec = "." , header = TRUE)
+rownames(qPCR_data) = qPCR_data[,2]
+
+
+
+# données log-transformées et "brutes"
+n=dim(qPCR_data)[1]
+RAWdata = as.matrix(qPCR_data[,c(3:21)])
+RAWdataNC=RAWdata
+LOGdata = as.matrix(qPCR_data[,c(22:40)])
+m=19
+# Centrage et standardisation des données
+RAWdata=RAWdata-matrix(apply(RAWdata,2,mean),nrow=n,ncol=m,byrow=T)
+RAWdata=RAWdata/matrix(sqrt(apply(RAWdata,2,var)),nrow=n,ncol=m,byrow=T)
+LOGdata=LOGdata-matrix(apply(LOGdata,2,mean),nrow=n,ncol=m,byrow=T)
+LOGdata=LOGdata/matrix(sqrt(apply(LOGdata,2,var)),nrow=n,ncol=m,byrow=T)
+```
+
+```{r}
+# classe des miRs
+Class = rep(0, dim(qPCR_data)[1])
+Class[qPCR_data[,1]=="malade"] = 1
+table(Class)
+data = list(RAWdata = RAWdata, LOGdata =LOGdata)
+table(qPCR_data[,1])
+```
+
+## Calcul des p-valeurs
+```{r}
+p_value <- numeric(length=m)
+for(i in 1:m) {
+p_value[i] <- t.test(RAWdata[Class==1,i], RAWdata[Class==0,i], var.equal = FALSE)$p.value
+}
+hist(p_value)
+cat("Nombre de tests significatifs:",sum(p_value<0.05)," sur ",m," càd ",100*round(sum(p_value<0.05)/m,2),"%.")
+```
+## Correction par méthode de Bonferroni
+```{r}
+p_value_Bonferroni=p_value*m
+p_value_Bonferroni[p_value_Bonferroni>1]=1
+hist(p_value_Bonferroni)
+cat("Nombre de tests significatifs après correction de Bonferroni:",sum(p_value_Bonferroni<0.05)," sur ",m," càd ",100*round(sum(p_value_Bonferroni<0.05)/m,2),"%.")
+# par la fonction p.adjust:
+p.adjust(p_value,method = "bonferroni")
+```
+## FWER - Approche de Sidak
+```{r}
+
+alphaSID=1-(1-0.05)^(1/m)
+cat("Alpha corrigé: ", alphaSID,"\n")
+cat("Nombre de tests significatifs après correction de Sidak:",sum(p_value<alphaSID)," sur ",m," càd ",100*round(sum(p_value<alphaSID)/m,2),"%.")
+```
+## FDR - approche de Benjamini-Hochberg
+```{r}
+p_val_sort=sort(p_value)
+q_value=numeric(length=m)
+for (i in 1:m){
+q_value[i]=(m*p_val_sort[i])/i
+}
+plot(1:m,q_value)
+first_not_signif=which((q_value<0.05)=="FALSE")[1]
+cat("Nombre de tests significatifs après correction FDR:",first_not_signif-1," sur ",m," càd ",100*round((first_not_signif-1)/m,2),"%.")
+# par la fonction p.adjust:
+sort(p.adjust(p_value,method = "hochberg"))
+```
+## Utilisation du package multtest
+
+```{r}
+require(multtest)
+```
+
+
+```{r}
+num=matrix(nrow=9,ncol=1)
+rownames(num)=c("Bonferroni","Holm","Hochberg","SidakSS","SidakSD","BH","BY","ABH","TSBH")
+cat("Bonferroni","\n")
+res<-mt.rawp2adjp(p_value, proc=c("Bonferroni"))
+num[1,1]=sum(res$adjp[,2]<0.05)
+cat("Holm","\n")
+# Holm (1979) step-down adjusted p-values for strong control of the FWER.
+mt.rawp2adjp(p_value, proc=c("Holm"))
+num[2,1]=sum(res$adjp[,2]<0.05)
+cat("Hochberg","\n")
+#Hochberg (1988) step-up adjusted p-values for strong control of the FWER (for raw (unadjusted) p-values satisfying the Simes inequality).
+mt.rawp2adjp(p_value, proc=c("Hochberg"))
+num[3,1]=sum(res$adjp[,2]<0.05)
+cat("SidakSS","\n")
+#Sidak single-step adjusted p-values for strong control of the FWER (for positive orthant dependent test statistics).
+mt.rawp2adjp(p_value, proc=c("SidakSS"))
+num[4,1]=sum(res$adjp[,2]<0.05)
+cat("SidakSD","\n")
+#Sidak step-down adjusted p-values for strong control of the FWER (for positive orthant dependent test statistics).
+mt.rawp2adjp(p_value, proc=c("SidakSD"))
+num[5,1]=sum(res$adjp[,2]<0.05)
+cat("BH","\n")
+#Adjusted p-values for the Benjamini & Hochberg (1995) step-up FDR-controlling procedure (independent and positive regression dependent test statistics).
+mt.rawp2adjp(p_value, proc=c("BH"))
+num[6,1]=sum(res$adjp[,2]<0.05)
+cat("BY","\n")
+#Adjusted p-values for the Benjamini & Yekutieli (2001) step-up FDR-controlling procedure (general dependency structures).
+mt.rawp2adjp(p_value, proc=c("BY"))
+num[7,1]=sum(res$adjp[,2]<0.05)
+cat("ABH","\n")
+#Adjusted p-values for the adaptive Benjamini & Hochberg (2000) step-up FDR-controlling procedure. This method ammends the original step-up procedure using an estimate of the number of true null hypotheses obtained from p-values.
+mt.rawp2adjp(p_value, proc=c("ABH"))
+num[8,1]=sum(res$adjp[,2]<0.05)
+cat("TSBH","\n")
+#Adjusted p-values for the two-stage Benjamini & Hochberg (2006) step-up FDR-controlling procedure. This method ammends the original step-up procedure using an estimate of the number of true null hypotheses obtained from a first-pass application of "BH". The adjusted p-values are a-dependent, therefore alpha must be set in the function arguments when using this procedure.
+mt.rawp2adjp(p_value, proc=c("TSBH"))
+num[9,1]=sum(res$adjp[,2]<0.05)
+```
+
+
+# Méthodes avancées
+```{r}
+resT<-mt.maxT(t(RAWdata),qPCR_data$Group)
+resP<-mt.minP(t(RAWdata),qPCR_data$Group)
+rawp<-resT$rawp[order(resT$index)]
+teststat<-resT$teststat[order(resT$index)]
+```
+
+# Comparaison des méthodes
+```{r}
+bonf<-mt.rawp2adjp(rawp, proc=c("Bonferroni"))
+allp<-cbind(rawp, bonf$adjp[order(bonf$index),2], resT$adjp[order(resT$index)],resP$adjp[order(resP$index)])
+sum(resT$adjp<0.05)
+sum(resP$adjp<0.05)
+mt.plot(allp, teststat, plottype="rvsa", proc=c("rawp","Bonferroni","maxT","minP"),leg=c(0.8,8),lty=1,col=1:4,lwd=2)
+mt.plot(allp, teststat, plottype="pvsr", proc=c("rawp","Bonferroni","maxT","minP"),leg=c(2,0.4),lty=1,col=1:4,lwd=2)
+mt.plot(allp, teststat, plottype="pvst", proc=c("rawp","Bonferroni","maxT","minP"),leg=c(-5,0.6),pch=16,col=1:4)
+
+```
+
+
+
+
+
+
+
+
+

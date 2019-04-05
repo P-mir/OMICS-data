@@ -1,0 +1,52 @@
+##TITLE= Audit trail, TOPSPIN		Version 2.1
+##JCAMPDX= 5.01
+##ORIGIN= Bruker BioSpin GmbH
+##OWNER= nmr
+$$ X:\jleenders/data/JL/nmr/Endo_carrelatin_160905_2/614/pdata/1/auditp.txt
+##AUDIT TRAIL=  $$ (NUMBER, WHEN, WHO, WHERE, PROCESS, VERSION, WHAT)
+(   1,<2016-10-05 13:10:43.109 +0200>,<nmr>,<RMN500>,<go>,<TOPSPIN 2.1>,
+      <created by zg
+	started at 2016-10-05 13:06:17.140 +0200,
+	POWCHK enabled, PULCHK disabled,
+       configuration hash MD5:
+       FE 10 F2 44 2F AA 6E 7A EA DB E3 FE 52 A5 9B 6B
+       data hash MD5: 64K
+       AE 17 8F 65 95 61 74 F6 99 5E 2F 30 95 9B 60 D2>)
+(   2,<2016-10-05 13:10:51.078 +0200>,<nmr>,<RMN500>,<proc1d>,<TOPSPIN 2.1>,
+      <Start of raw data processing
+       ef LB = -0.01 FT_mod = 6 PKNL = 1 SI = 64K 
+       data hash MD5: 64K
+       92 B4 FB 0F 57 A7 66 73 FA B6 BC 6D 25 BC C3 0E>)
+(   3,<2016-10-05 13:10:51.484 +0200>,<nmr>,<RMN500>,<proc1d>,<TOPSPIN 2.1>,
+      <apk 
+       data hash MD5: 64K
+       CB 29 B9 32 B9 5B 18 36 A9 DF 91 F7 67 BF 09 EA>)
+(   4,<2016-10-05 13:10:51.562 +0200>,<nmr>,<RMN500>,<proc1d>,<TOPSPIN 2.1>,
+      <abs ABSG = 1 
+       data hash MD5: 64K
+       AA AD 3C EB 00 C0 4F D5 D7 DB B4 DF 41 29 81 0D>)
+(   5,<2016-10-05 13:10:51.781 +0200>,<nmr>,<RMN500>,<audit>,<TOPSPIN 2.1>,
+      <user comment:
+       ICON-NMR User ID: JL
+       data hash MD5: 64K
+       AA AD 3C EB 00 C0 4F D5 D7 DB B4 DF 41 29 81 0D>)
+(   6,<2016-10-05 13:10:52.046 +0200>,<nmr>,<RMN500>,<dirdata>,<TOPSPIN 2.1>,
+      <wrpa from 1 614 "Endo_carrelatin_160905" "JL" "C:\donnees_rmn"
+       data hash MD5: 64K
+       AA AD 3C EB 00 C0 4F D5 D7 DB B4 DF 41 29 81 0D>)
+(   7,<2016-10-17 13:34:48.852 +0200>,<pdetullio>,<PC-ULG>,<proc1d>,<TOPSPIN 3.2>,
+      <pk fgphup PHC0 = 7.580274 PHC1 = -12.8 
+       data hash MD5: 64K
+       DB 3F 9A 37 8D 03 0D 05 10 29 87 73 98 54 83 A8>)
+(   8,<2017-02-10 09:39:58.095 +0100>,<pdetullio>,<PC-ULG>,<audit>,<TOPSPIN 3.2>,
+      <user comment:
+       TITLE=Patiente LBTD B S1 Rep3 passage3
+       100 microl serum + 70microl Tampon D2O + 30microl AM 5mM + 10 microl TMSP
+       Tube 5mm
+       MET_CPMG_1DPr H2O+D2O {C:\donnees_rmn} JL 5TITLE_END
+       data hash MD5: 64K
+       DB 3F 9A 37 8D 03 0D 05 10 29 87 73 98 54 83 A8>)
+##END=
+
+$$ hash MD5
+$$ 7E 38 9E 34 83 5F FA 5A E8 D6 1E 58 C3 8B 6C 7E

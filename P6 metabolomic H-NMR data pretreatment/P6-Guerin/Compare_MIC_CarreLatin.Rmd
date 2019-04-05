@@ -1,0 +1,287 @@
+---
+title: "Comparaison du MIC de plusieurs matrices de spectres"
+author: "Patrick Guerin"
+date: '`r format(Sys.time(), "%B %d, %Y,%H:%M")`'
+output:
+  html_document: # options pour sortie HTML
+    code_folding: hide #  Cache le code  
+    collapsed: yes # CrÃ©e un document unique 
+    fig_caption: yes # Figures encapsulÃ©es ? 
+    fig_height: 5 # Hauteur par dÃ©faut des figures
+    fig_width: 6 # Largeur par dÃ©faut des figure
+    highlight: tango # style de mise en valeur du code
+    number_sections: yes # Ajout table des matiÃ¨res 
+    theme: united  # Style du document
+    toc: yes # Table des matiere ?
+    toc_depth: 3  # Profondeur table des matiÃ¨re
+    toc_float: yes # table des matiÃ¨re flottante
+  pdf_document: # options pour sorties pdf
+    toc: yes
+    toc_depth: '3'
+  word_document: default
+---
+
+```{r INTRO, include=FALSE}
+# ====================================================================
+#  Ce code permet de faire une analyse de rÃ©pÃ©tabilitÃ© de plusieurs 
+#  matrices de donnÃ©es omiques Ã©manant des mÃªme Ã©chantillons
+#  mais acquises ou prÃ©traitÃ©es par plusieurs mÃ©thodes 
+#  Les donnÃ©es doivent Ãªtre classÃ©es en groupes.
+#  ATTENTION LES NOMS DES SPECTRES DOIVENT ETRE IDENTIQUES DANS LES
+#  DIFFERENTES MATRICES DE SPECTRE A COMPARER MAIS PAS NECESSAIREMENT DANS
+#  LE MEME ORDRE
+# 
+#  Le code propose plusieurs mÃ©thodes pour Ã©valier l'information
+#  - PCA
+#  - Mesures d'inertie
+#  - Classification non supervisÃ©e 
+#  - Classification superviÃ©e (par PLS-DA)
+#
+# ====================================================================
+```
+
+```{r setup, include=FALSE}
+## Download and load the librairies utiles
+# install_github("ManonMartin/MBXUCL")
+require(devtools)
+library(markdown)
+require(knitr) 
+require(pander) # Librairie pour afficher des tableaux
+require(MBXUCL)
+require(PepsNMR)
+## Options globales
+knitr::opts_chunk$set(echo = TRUE)
+```
+Afin de vérifier si le traitement Peps automatisé est correct, on compare celui-ci à un traitement manuel sur la abse de l'indice MIC (Metabolomic information content)
+
+# Lecture des matrices des spectres et initiatilisation des variables utiles
+
+
+```{r}
+#  Choix du répertoire où sont les matrices de donnÃ©es
+pathdir="~/Traitement des données omics/Devoirs/P6  Prétraitement de données métabolomiques H-NMR/"
+#  Definition des matrices à lire dans ce répertoire
+data_used=c("CarreLatin_full_Peps.csv","CarreLatinMBXmanualPPMINV.csv")
+spectral_matrices_names=c("CarreLatin_full_PEPS","CarreLatin_Manual_500P")
+nmatrices=length(data_used)
+# Lecture des matrices de données.  
+## On les stocke dans spectral_matrices_list
+## On remplace les noms des colonnes par des noms sans le X
+spectral_matrices_list=list() 
+for(i in 1:nmatrices)
+{
+spectral_matrices_list[[spectral_matrices_names[i]]]=as.matrix(read.table(file.path(pathdir,data_used[i]),header=T,sep=";",row.names=1,dec="."))
+dimnames(spectral_matrices_list[[i]])[[2]]=as.numeric(substring(dimnames(spectral_matrices_list[[i]])[[2]],first=2))
+# cat("\n Lecture de la matrice : ",spectral_matrices_names[i])
+}
+
+
+
+# On recherche la matrice des spectres communs dans les 2 bases (si ce n'est pas le cas au départ), on eleve les blancs des noms 
+dimnames(spectral_matrices_list[[1]])[[1]]=gsub(" ","",dimnames(spectral_matrices_list[[1]])[[1]]) # on enleve des blancs des noms des spectres.  
+namespectra=dimnames(spectral_matrices_list[[1]])[[1]]
+countspectra=matrix(nrow=nmatrices+1,ncol=2)
+dimnames(countspectra)=list(c(spectral_matrices_names,"Common Spectra"),c("Nb of spectra","Nb Buckets"))
+countspectra[1,1]=length(namespectra)
+countspectra[1,2]=dim(spectral_matrices_list[[1]])[2]
+for(i in 2:nmatrices)
+{
+dimnames(spectral_matrices_list[[i]])[[1]]=gsub(" ","",dimnames(spectral_matrices_list[[i]])[[1]]) 
+newnames=dimnames(spectral_matrices_list[[i]])[[1]]
+compnames=is.element(namespectra,newnames) 
+countspectra[i,1]=length(newnames)
+countspectra[i,2]=dim(spectral_matrices_list[[i]])[2]
+namespectra=namespectra[compnames]
+}  
+countspectra[nmatrices+1,1]=length(namespectra)
+# pander(countspectra)
+# On extrait les bons spectres et on les met dans le même ordre
+for(i in 1:nmatrices)
+{
+spectral_matrices_list[[i]]=spectral_matrices_list[[i]][namespectra,]
+} 
+# Creation des variables qui dèfinissent les groupes
+TypeY=rep(c("A","B","C"),c(9,9,9))
+classY=as.numeric(as.factor(TypeY))
+groupes=classY
+
+
+```
+
+Voilà les spectres d'un example de trois échantillons.
+
+```{r }
+
+for(i in 1:nmatrices)
+{
+Draw(spectral_matrices_list[[i]][2:4,],type.draw="signal",subtype="stacked",num.stacked=4)
+}
+```
+
+# Etude de la répétabilité spectrale
+
+##  Between and Within group inertia
+
+On commence par comparer les inerties inter et intra-classes de nos deux analyses:
+
+```{r, include=FALSE}
+# DÃ©finitions des matrices de rÃ©sultats
+Inertiavalues=matrix(nrow=nmatrices,ncol=3)
+dimnames(Inertiavalues)=list(spectral_matrices_names,c("BI","WI","TI"))
+Inertiapc=Inertiavalues
+nGroup = length(unique(groupes))
+InertiaPerGroup=matrix(nrow=nGroup+1,ncol=nmatrices)
+dimnames(InertiaPerGroup)[[1]]=c(unique(groupes),"Total")
+dimnames(InertiaPerGroup)[[2]]=spectral_matrices_names
+# Boucle de calcul des inerties
+for(i in 1:nmatrices)
+{
+Inertia.res = Inertia(x = spectral_matrices_list[[i]], y = groupes, print = FALSE)
+Inertiavalues[i,]=Inertia.res[["Between_within"]][1,]
+Inertiapc[i,]=Inertia.res[["Between_within"]][2,]
+InertiaPerGroup[,i]=Inertia.res[["Per_group"]][,2]
+}
+```
+
+```{r}
+# Impression des résultat des inerties
+cat("Inerties non standardisées")
+pander(list(Inerties_non_standardisees=Inertiavalues,Inerties_en_PC=Inertiapc,Inerties_within_groups=InertiaPerGroup))
+```
+
+On peut constater que l'inertie intra-classes semble plus forte avec le traitement automatisé, ce qui laisse présager une discriminaiton moins bonne qu'avec le traitement manuel des données.
+
+##  PCA
+
+On réalise ensuite une ACP.
+```{r PCA, include=FALSE}
+ncompPCA = 4
+# ExÃ©cution des PCAs
+PCA.res= vector("list")
+for(i in 1:nmatrices)
+{
+PCA.res[[i]] = MBXUCL::SVDforPCA(spectral_matrices_list[[i]], ncomp=ncompPCA)
+}
+```
+
+### Eigenvalues
+
+
+```{r eigPCA, include=T}
+Eigenvalues=matrix(nrow=nmatrices,ncol=ncompPCA)
+dimnames(Eigenvalues)=list(spectral_matrices_names,paste("PC",1:ncompPCA))
+for(i in 1:nmatrices)
+{
+Eigenvalues[i,]=cumsum(PCA.res[[i]][["eigval"]][1:ncompPCA]/sum(PCA.res[[i]][["eigval"]]))
+}
+
+pander(Eigenvalues)
+```
+
+Le traitement manuel semble à nouveau supérieur puisqu'il permet une meilleure explication de la variance sur la abse du premier plan factoriel. 
+
+### PCA Score Plots
+```{r PCAScoresplot, out.width = '50%', warning = FALSE}
+draw.scores12 = vector("list")
+draw.scores34 = vector("list")
+for(i in 1:nmatrices)
+{
+draw.scores12[[spectral_matrices_names[i]]]=MBXUCL::DrawScores(PCA.res[[i]], drawNames=TRUE, type.obj = "PCA",createWindow=FALSE, main = paste0("PCA score plot for ",spectral_matrices_names[i]),pch = groupes, col = groupes,axes =c(1,2))
+draw.scores34[[spectral_matrices_names[i]]]=MBXUCL::DrawScores(PCA.res[[i]], drawNames=TRUE, type.obj = "PCA",createWindow=FALSE, main = paste0("PCA score plot for ",spectral_matrices_names[i]),pch = groupes,col = groupes, axes =c(3,4))
+}
+```
+
+```{r, warning = FALSE}
+draw.scores12
+draw.scores34
+```
+
+Les plots score confirme cela, on voit bien que que le traitement automatisé classifie moins bien sur les deux premiers axes, avec deux observations relativement éloignés de leur groupe.
+Cependant les résultats semblent meilleurs que le traitement manuel pour les axes 3 et 4 où les groupes sont mieux discriminés.
+
+
+```{r PCAloadingsplot, warning = FALSE, eval=F}
+draw.loadings12 = vector("list")
+draw.loadings34 = vector("list")
+for(i in 1:nmatrices)
+{
+draw.loadings12[[spectral_matrices_names[i]]] = MBXUCL::DrawLoadings(PCA.res[[i]],  type.obj = "PCA",createWindow=FALSE, main = paste0("PCA loadings plot for", spectral_matrices_names[i]),axes = c(1:2), loadingstype="l", num.stacked = 2)[[1]]
+draw.loadings34[[spectral_matrices_names[i]]] = MBXUCL::DrawLoadings(PCA.res[[i]],  type.obj = "PCA",createWindow=FALSE, main = paste0("PCA loadings plot for", spectral_matrices_names[i]),axes = c(3:4), loadingstype="l", num.stacked = 2)[[1]]
+}
+draw.loadings12
+draw.loadings34
+```
+
+##  Unsupervised clustering (MIC)
+
+On peut également réaliser un clustering hiérarchique (distance de ward)  afin de vérifier si nos données permettent de regrouper correctement nos échantillons.
+
+```{r ClustMIC}
+nClust = length(unique(groupes)) # nombre de clusters à rechercher
+clustres=matrix(0,nrow=nmatrices,ncol=8)
+dimnames(clustres)=list(spectral_matrices_names,c("DunnW","DunnKM","DBW","DBKM","RandW","RandKM","AdjRandW","AdjRandKM"))
+for(i in 1:nmatrices)
+{
+print(spectral_matrices_names[i]) 
+ClustMIC.res = MBXUCL::ClustMIC(Intensities = spectral_matrices_list[[i]], nClust = nClust, Trcl = groupes, Dendr = TRUE)
+clustres[i,]=as.numeric(ClustMIC.res[1,1:8])
+}
+pander(clustres)
+```
+
+Dans les deux cas, on retrouve nos trois patients, même si les sous-groupe diffèrent entre les deux analyses.
+
+## PLS-DA
+
+Finalement on utilise une régréssion des moindres carrés partielle afin de comparer la classification obtenue par les deux traitements. 
+
+```{r PLSDA, out.width = '120%'}
+nLVPLSDA = 4  # nombre du composantes du PLSDA
+nrep=nlevels(as.factor(groupes)) # Nombre de rÃ©ponses
+PLSDA.res=list()
+perf.plsda.RMSEP=matrix(nrow=nmatrices,ncol=nrep)
+dimnames(perf.plsda.RMSEP)=list(spectral_matrices_names,paste0("Y",1:nrep))
+perf.plsda.R2=perf.plsda.RMSEP
+perf.plsda.Q2=perf.plsda.RMSEP
+for(i in 1:nmatrices)
+{
+# cat("PLS-DA pour ",spectral_matrices_names[i])  
+PLSDA.res [[i]]= PLSDA(x = spectral_matrices_list[[i]], y = groupes, nLV = nLVPLSDA, drawRMSEP = TRUE)
+perf.plsda.RMSEP[i,] = PLSDA.res[[i]]$RMSEP
+perf.plsda.R2[i,]=PLSDA.res[[i]]$R2
+perf.plsda.Q2[i,]=PLSDA.res[[i]]$Q2
+}
+```
+
+```{r}
+pander(list(RMSEP=perf.plsda.RMSEP,R2=perf.plsda.R2,Q2=perf.plsda.Q2))
+```
+
+Les performances des deux jeux de données sont très proches.
+
+### Score plots de la PLS_DA
+```{r PLSDAScoresplot, out.width = '70%'}
+PLSDA.scores= vector("list")
+for(i in 1:nmatrices)
+{ 
+PLSDA.scores[[spectral_matrices_names[i]]]=DrawScores(PLSDA.res[[i]], drawNames=TRUE, type.obj = c("PLSDA"),
+        createWindow=FALSE, main = paste0("PLSDA score plot for ", spectral_matrices_names[i]),pch = groupes,col = groupes, axes =c(1,2))
+}
+PLSDA.scores
+```
+
+On retrouve les résultats déjà constatés avec l'ACP.
+
+### Loading plots de la PLS_DA
+```{r PLSDAloadingsplot}
+PLSDA.loadings= vector("list")
+for(i in 1:nmatrices)
+{ 
+PLSDA.loadings[[spectral_matrices_names[i]]]=DrawLoadings(PLSDA.res[[i]],  type.obj = "PLSDA",
+        createWindow=FALSE, main = paste0("PLSDA loadings plot for", spectral_matrices_names[i]),
+        axes = c(1:2),  loadingstype="l", num.stacked = 2)
+}
+PLSDA.loadings
+```
+
+Les graphiques de loadings expliquent les différences constatées dans les scores plots, en effet on voit par exemple que les variables qui expliquent le premier axe ne sont pas toujours les même selon le jeu de données étudié.

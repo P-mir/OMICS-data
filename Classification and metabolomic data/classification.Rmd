@@ -1,0 +1,355 @@
+---
+title: "Analyse donnC)es carrC) latin MBX"
+author: "Patrick Guerin"
+date: '`r format(Sys.time(), "%B %d, %Y,%H:%M")`'
+output:
+  html_document: # options pour sortie HTML
+    code_folding: hide #  Cache le code  
+    collapsed: yes # CrC)e un document unique 
+    fig_caption: yes # Figures encapsulC)es ? 
+    fig_height: 5 # Hauteur par dC)faut des figures
+    fig_width: 6 # Largeur par dC)faut des figure
+    highlight: tango # style de mise en valeur du code
+    number_sections: yes # Ajout table des matiC(res 
+    theme: united  # Style du document
+    toc: yes # Table des matiere ?
+    toc_depth: 3  # Profondeur table des matiC(re
+    toc_float: yes # table des matiC(re flottante
+  pdf_document: # options pour sorties pdf
+    toc: yes
+    toc_depth: '3'
+  word_document: default
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(devtools)
+install.packages("curl")
+require(curl)
+install.packages("rlang")
+require(rlang)
+
+install.packages("stringi")
+require(stringi)
+# install.packages("Rcpp")
+require(Rcpp)
+# source("https://bioconductor.org/biocLite.R")
+# biocLite("ropls")
+# bioClite("rcpp")
+# install_github("ManonMartin/MBXUCL", force = TRUE)
+require(knitr) 
+require(pander) # Librairie pour afficher des tableaux
+require(pls) # librairie pls Ron Wehrens
+require(MBXUCL) # Librairie MBX de l'ISBA-SMCS
+require(ropls) # Librairie o-pls E. Thevenot
+require(penalized) # Librairie pour faire de la rC)gression ridge et lasso
+
+
+# Importation des donnC)es
+
+# Choix du chemin d'accC(s (C  modifier par votre rC)pertoire)
+# lecture du data frame
+# data<-read.csv("/CarreLatinMBXmanualPPMINV.csv",sep=";",header=TRUE)
+data <- read.csv("C:/Users/p/OneDrive - UCL/Traitement des données omics/Devoirs/Classification and metabolomic data/CarreLatinMBXmanualPPMINV.csv",sep=";",header=TRUE)
+```
+
+# PrC)paration des donnC)es 
+
+```{r}
+# DC)finition des matrices de donnC)es et tailles associC)es
+n=dim(data)[1]
+m=dim(data)[2]-1
+X=apply(data[,1+(1:m)],2,as.numeric)
+TypeY=rep(c("A","B","C"),c(27,27,27))
+classY=as.numeric(as.factor(TypeY)) # classe 1, 2 et 3 utile pour les graphiques
+# On extrait les noms des variables, on enlC(ve le "X" et on les remets comme noms de variables
+ppm=as.numeric(substr(dimnames(X)[[2]],2,6))
+# On mets les noms des spectres comme non des lignes de X
+dimnames(X)[[1]]=data[,1]
+# Centrage des spectres
+XC=scale(X,center=T,scale=F)
+# DC)finition de variables pour les graphiques
+Xylab="IntensitC)" 
+Xxlab="ppm"
+Xval=ppm  
+Ylab="Sujet"
+```
+
+
+
+# Graphiques des donnC)es
+
+## Dessin des spectres
+```{r}
+par(mfrow=c(1,1))
+plot(Xval,X[1,],ylim=c(min(X),max(X)),type="l",ylab=Xylab,xlab=Xxlab,main="Spectres")
+abline(h=0,lt=2)
+for(i in 2:n) lines(Xval,X[i,],col=i)
+```
+
+# Analyse en composantes principales des donnC)es spectrales
+
+## PCA des spectres centrC)es avec la librairie MBX
+
+```{r}
+ncomp=8
+PCA.res = SVDforPCA(XC,ncomp = ncomp)
+```
+
+### Valeurs propres
+
+% de la variance expliquC)e par chaque variable
+
+```{r}
+eig.res=rbind(PCA.res$var,PCA.res$var*100/sum(PCA.res$var),PCA.res$cumvar)
+rownames(eig.res)=c("Variances","Prop Var","Cum Eigen Values")
+pander(eig.res)
+```
+
+### Scores
+
+ReprC)sentation graphique des scores pour les 4 premiC(res composantes
+
+```{r , echo=TRUE, fig.height=5, fig.show='hold', fig.width=5, warning=FALSE, out.width='50%'}
+DrawScores(PCA.res, type.obj = "PCA", drawNames=TRUE,createWindow=FALSE, main = paste("PCA score plot for PC1 and PC2"), axes =c(1,2),pch=classY, col=classY)
+DrawScores(PCA.res, type.obj = "PCA", drawNames=TRUE,createWindow=FALSE, main = paste("PCA score plot for PC3 and PC4"), axes =c(3,4), pch=classY, col=classY)
+```
+
+### Graphe des loadings 
+
+```{r, echo=TRUE, fig.height=4, fig.show='hold',out.width='100%'}
+DrawLoadings(PCA.res, type.obj = "PCA", createWindow=FALSE,
+    axes = c(1:4),  loadingstype="l",xlab=Xxlab,ang="90",xaxis="character",nxaxis=10)
+```
+
+# Extraction des donnC)es utilisC)es pour la classification : groupes A et C
+
+```{r}
+# On choisit les patients A et C
+ind=TypeY!="B"
+X=X[ind,]
+n=dim(X)[1]
+TypeY=TypeY[ind]
+classY=as.numeric(as.factor(TypeY)) # classe 1, 2 et 3 utile pour les graphiques
+# Centrage des spectres
+XC=scale(X,center=T,scale=F)
+XC <- data.frame(XC)
+YL=classY-1  # Variable 0, 1 pour la classification
+YC=scale(YL,center=T,scale=F)
+classY=YL
+```
+
+#
+
+
+```{r kfoldCV}
+RMSE <- function(y_true, y_fit) {
+  n <- length(y_true)
+  sqrt((1/n)*sum((y_true-y_fit)^2))
+}
+
+##################
+# kfoldCV
+##################
+
+# fonction qui fait de la k-fold CV sur une fonction de rC)gression prC)dC)finie prC)disant y (FUN)
+kfoldCV=function(X, Y, k, FUN = ypred_FUN, seed=100, ...) {
+  # Inputs
+    # X, la matrice des rC)gresseurs 
+    # Y, le vecteur des rC)ponses 
+    # k, le nombre de segments et 
+    # FUN : la fonction de rC)gression qui prC)dit Y 
+  # Outputs : 
+    # ypred.cv, les prC)dictions par CV
+
+  # 1. definition de k segments aleatoires
+  n=dim(X)[1]
+  set.seed <- seed
+  indx <- sample(1:n,n)
+  nseg <- k
+  sn <- ceiling(n/k) # taille des segments
+  
+  # 2. boucle sur les sous-echantillons
+  # pour calculer y-fit par cv
+  yfit.cv <- numeric()
+  for (i in 1:nseg) {
+    if(i < nseg) {indseg <- indx[(i-1)*sn + (1 : sn)]}
+    else {indseg <- indx[((i-1) * sn + 1) : n]}
+    Y.train <- Y[-indseg]
+    X.train <- X[-indseg,]
+    X.valid <- X[indseg,]
+    yfitcv <- FUN(X = X.train, Y = Y.train, XV = X.valid, ...)
+    yfit.cv[indseg] <- yfitcv
+  }
+  
+  # 3. Sortie de la fonction
+  return(yfit.cv)
+  }
+
+```
+
+
+```{r}
+# DC)finition de paramC(tres de modC)lisation
+# nombre de segments en cross validation
+k <- 10
+# Nombre de composantes max
+NCmax=5
+# Liste des modC(les
+modnames <- c('Logistique-SW','PLSR','O-PLS','Logistique-RIDGE','Logistique-LASSO','Random Forest')
+nmodels <- length(modnames) # nombre de modC(les C)valuC)s
+# Preparation des matrices de rC)sultats
+# Matrice des RMSE
+RMSEMat <- matrix(nrow = nmodels, ncol = 3)
+colnames(RMSEMat) <- c('RMSE-train','RMSE-CV','Taille du modC(le')
+rownames(RMSEMat) <- modnames
+# Matrice des coefficients (pour tous les modC(les sauf RF)
+CoefficientMat <- matrix(0, ncol = m, nrow = nmodels-1)
+colnames(CoefficientMat) <- colnames(XC)[1:m]
+rownames(CoefficientMat) <- modnames[-nmodels]
+# Matrice des prC)dictions
+PredMat <- matrix(nrow = n, ncol = nmodels)
+colnames(PredMat) <- modnames
+# Tout est mis dans une liste qui sera remis C  jour modC(le par modC(le
+listr=list(CoefficientMat=CoefficientMat,RMSEMat=RMSEMat,PredMat=PredMat)
+```
+
+```{r}
+# crC)ation d'une fonction pour stocker et imprimer les rC)sultats de chaque modC(le 
+printresmod=function(i,YC,yfit,yfitCV,coef,parmod,listr,pcoef=T)
+{
+  # i = NB0 du modC(le
+  # YC : rC)ponses observC)e
+  # yfit : rC)ponses prC)dites
+  # yfitCV : rC)ponses prC)dites par CV
+  # coef : vecteur des coefficients
+  # parmod paramC(tre de dimension ou de lissage du modC(le
+  # pcoef : T/F pour indiquer si des coefficient sont dispo pour le modC(le (pas le cas pour les RF)
+par(mfrow=c(1,2))
+plot(YC,yfit,pch=20,main="Y-Yfit")
+plot(YC,yfitCV,pch=20,main="Y-YfitCV",ylab="yfitCV")
+# calcul des RMSE 
+n=length(YC)
+listr$RMSEMat[i,1]=sqrt(sum((YC-yfit)^2)/n)
+listr$RMSEMat[i,2] =sqrt(sum((YC-yfitCV)^2)/n)
+listr$RMSEMat[i,3] = parmod 
+# RC)cupC)ration des coefficients et des rC)ponses
+if(pcoef==T) listr$CoefficientMat[i,]=coef
+listr$PredMat[,i]=yfit
+# affichage de rC)sultats
+  pander(listr$RMSEMat[i,])
+  par(mfrow=c(1,1))
+if(pcoef==T){  
+if(Xcat==F){plot(Xval,listr$CoefficientMat[i,],type="l",ylab="Coefficients",main=paste("Coefficients ",dimnames(coefficient)[[1]][i]),xlab=Xxlab)
+ abline(h=0)}
+if(Xcat==T){dotchart(coef,labels=colnames(coef),
+           xlab="Coefficients",main=paste("Coefficients - ",modnames[i])) } 
+}
+return(listr)
+}
+```
+
+# Régression logistique stepwise
+
+## (1) RC)gression logistique stepwise forward
+
+```{r,warning=F}
+# Ajustement du modC(le de regression stepwise forward
+null <- glm(classY ~ 1, data=XC,family="binomial") # modele de depart
+full <- glm(classY ~ ., data=XC,family="binomial") # modele avec toutes les variables
+fit.sw <- step(null, scope=list(lower=null, upper=full), direction="both",trace=0) # critC(re d'opimisation= AIC
+
+pander(summary.glm(fit.sw))
+yfit.train <- fit.sw$fitted.values
+namessw=names(coefficients(fit.sw))
+coef <- CoefficientMat[1,]
+coef[namessw[-1]]=coefficients(fit.sw)[-1]
+nc <- length(coef)-1
+
+ypred_FUN <- function(X,Y,XV,...){
+  null <- glm(Y ~ 1, data = X,family = "binomial") 
+  full <- glm(Y ~ ., data = X,family = "binomial") 
+  fit.sw <- step(null, scope = list(lower = null, 
+                                    upper = full),
+                 direction="both",trace=0)
+  coef <- coefficients(fit.sw)
+  
+  XV <- cbind(1, XV[,names(coef)[-1]])
+  yfit.cv <- as.matrix(XV) %*% coef
+  yfit.cv <- exp(yfit.cv)/(1+exp(yfit.cv))
+  return(yfit.cv)
+}
+
+yfit.cv  <- kfoldCV(X = XC, Y = classY, k = k, FUN = ypred_FUN)
+
+# Sauvegardes et impression de rC)sultats
+listr=printresmod(1,classY,yfit.train,yfit.cv,coef,nc,listr)
+```
+
+# Régresison des moindres carrés partiels
+
+```{r plsr}
+# Recherche du nombre de composantes optimales par CV
+## dC)finition de la fonction d'estimation du modC(le 
+ypred_FUN <- function(X, Y, XV, ...){
+  fit.plsr <- plsr(Y ~ . , data = X, ...)
+  coef <- coefficients(fit.plsr)
+  yfit.train <- as.matrix(XV) %*% coef
+  return(yfit.train)
+}
+## Boucle sur le nombre de composantes possibles: 1 C  NCmax
+RMSE.cv <- numeric()
+yfit.cv <- list()
+for(i in 1:NCmax) {
+  res.cv <- kfoldCV(X = XC, Y = YC, k = k, 
+                    FUN = ypred_FUN, 
+                    ncomp = i)
+  yfit.cv[[i]] <- res.cv
+  RMSE.cv[i] <- RMSE(y_true = classY, y_fit = yfit.cv[[i]])
+}
+
+
+# Recherche du nombre de composantes C  garder
+
+plot(1:10, RMSE.cv, type = "o", main = "RMSE cross-validation")
+ncomp.opt = which.min(RMSE.cv)
+ncomp.opt = max(2, ncomp.opt)
+abline(v = ncomp.opt, col = 2, lty = 2)
+
+RMSE.cv <- RMSE.cv[ncomp.opt] 
+yfit.cv <-  yfit.cv[[ncomp.opt]] + mean(classY)
+
+# Ajustement du modC(le avec le nombre optimal de composantes
+fit.plsr <- plsr(YC ~ . , data = data.frame(XC), 
+                 ncomp = ncomp.opt)
+print(summary(fit.plsr))
+yfit.train <- fit.plsr$fitted.values[, , ncomp.opt] + mean(classY)
+coef <- coefficients(fit.plsr)[, , ]
+nc <- ncomp.opt
+
+# Sauvegardes et impression de rC)sultats
+listr=printresmod(2,classY,yfit.train,yfit.cv,coef,nc,listr)
+
+```
+
+### Scores
+
+ReprC)sentation graphique des scores pour les 2 premiC(res composantes avec la librairie MBX
+
+
+```{r , echo=TRUE, fig.height=5, fig.show='hold', fig.width=5, warning=FALSE}
+par(mfrow=c(1,1))
+# graphe des scores avec la librairie MBXUCL
+ScatterPlot(fit.plsr$scores[,1],fit.plsr$scores[,2], createWindow=FALSE, points_labs =obsnames, main = paste("PLS score plot for PC1 and PC2"),  color=classY, pch=classY,xlab="PC1",ylab="PC2")
+```
+
+### Graphe des loadings 
+
+```{r, echo=TRUE, fig.height=4, fig.show='hold',out.width='100%'}
+loadings <- fit.plsr$loadings
+for (i in 1:2) {
+plot(loadings[,i], type="h", xaxt="n", xlab="",
+     ylab = "Loading", main = paste0("Loading ", i), lwd = 3)
+axis(side = 1,  at = 1:length(miR_names), labels = miR_names, las=2, cex.axis=0.7)
+}
+
+```

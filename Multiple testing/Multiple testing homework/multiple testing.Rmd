@@ -1,0 +1,351 @@
+---
+title: 'Analysis of qPCR data: Cancer analysis'
+author: "Patrick Guerin"
+date: "March 5, 2018"
+output:
+  html_document: default
+  pdf_document: default
+link-citations: yes
+# bibliography: biblio.bib
+---
+
+#Introduction
+
+In this project we use expresssion data of 3051 genes from 38 patients suffering from two types of leucemia:  acute lymphoblastic leukemia (ALL) and acute myeloid leukemia
+(AML).
+
+**Goal:** Applying multiple testing methods to identify genes having a significantly different expression between the two groups of patients.
+
+
+```{r setup,echo=F, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r,include=FALSE }
+
+# install.packages("backports")
+pacman::p_load(multtest)
+if (!require("textir")) install.packages("textir")
+if (!require("colorspace")) install.packages("colorspace")
+if (!require("ggplot2")) install.packages("ggplot2")
+
+library(ggplot2)
+library(knitr)
+library(pander)
+library(textir)
+rawdata=read.csv("C:/Users/p/OneDrive - UCL/Traitement des données omics/Devoirs/Multiple testing/étude Golub-20180228/golub_complete_table.txt",sep=";",dec=".")
+
+colnames(rawdata)[3052] = "type"
+
+ALL=rawdata[which(rawdata$type==0),]
+AML=rawdata[which(rawdata$type==1),]
+
+
+
+```
+
+## Test of the normality
+
+ In order to decide which test are eligible to analyze our data we use the Shapiro-Wilk test of normality[@power_comparisons]
+ 
+To assess the normality of the whole dataset, we apply a shapiro-wilk test to each of our 3051 variables, then compute the percentage of variables for which the null hypothesis of normality is rejected, for a risk of 1
+,5 and 10%. 
+
+
+```{r,fig.height=4,fig.width=3}
+
+rawdata=cbind(scale(rawdata[1:3051]),rawdata[3052])
+
+
+for (r in c(1,5,10)){
+
+message("Proportion of non-normal variables for a significance level of ",r,"%: ")
+
+shap=apply(rawdata[1:3051],2,shapiro.test)
+rawp =  t(data.frame(sapply(shap, `[`, c("p.value"))))
+pvalues = rawp[ which(rawp<0.01*r)]
+
+message(round(length(pvalues)/3051*100,2),"%")
+
+}
+for (r in c(1,5,10)){
+print(qplot(rawp,
+      geom="histogram",
+      binwidth = 0.05,  
+      xlab = "p-values",  
+      fill=I("blue"), 
+      col=I("red"), 
+      alpha=I(.2)
+      ))
+}
+
+par(mfrow=c(1,3))
+
+
+```
+
+We can observe that a large portion of the data does not seem to be normal. (1549 variables are considered non-normal at a risk of 5%)
+
+However even taking a significance level of 1% implies an High error of type I:
+If the gene expressions were independant, the False Positive Rate would be of: \begin{equation}1-0.99^{3051}\%\end{equation} In other words we would almost always reject the null hypothesis.
+
+Fortunately our variable are not likely do be totally independant and we are not falling into the extreme case. However, we are still very likely to suffer from that multiple comparisons issue and consequently to overestimate the non-normality of the data.
+
+\newline\newline
+To adress this issue, several techniques aims to adjust the threshold risk \alpha of each test in order to control the global risk  False Positive considering all the tests performed.
+  
+  
+Two approaches are considered: controling the Family-wise error rate and controling the False Discovery Rate.
+
+###Family-wise error rate (FWER)
+
+The first approach is to control the family-wise error rate (FWER), which is the _probability of making at least one false discovery_ when performing multiple hypothesis tests.
+\
+\
+A first technique is the **Bonferroni correction**:
+
+We divide the risk threshold \alpha by the number tests performed N:
+
+\begin{equation}\alpha_{b} = \frac{\alpha}{N}\end{equation}
+
+
+In our case, for a risk of 5% it requires us to have an average p-value treshold of 
+\begin{equation} \alpha= \frac{0.05}{3051}\approx0.0000163 \end{equation}
+for each of our tests.
+
+Yet the Bonferroni correction only provide a lower borne to ensure the global significance level does not exceed $\alpha_{b}$.
+
+
+In fact it requires unnecessary small individual p-values considering the global risk, hence this correction comes at the cost of increasing the probability of producing false negatives, _i.e_., **reducing statistical power**. 
+
+
+
+In our case, it means that we will tend to over-estimate the portion of normal variables by counting as normal variables that do not follow a normal distribution.
+\
+\
+\
+The **Sidák correction** is another attempt to control the Family-wise error rate.
+
+The idea is the following:
+
+let $\alpha_{1}$ be the significance treshold for each test and \alpha the global treshold.
+
+By assuming that the test are independant we can write:
+
+ $\alpha=1-(1-\alpha_{1})^{N}$
+ $\alpha_{1}=1-(1-\alpha)^{\frac{1}{N}}$
+
+
+So that in our case the average significance treshold must be $1-0.95^{\frac{1}{3051}}\approx0.0000168$
+
+We see that the corrected p-values are higher than with the Bonferroni correction, while still nearly identicals.
+  
+  
+The two test above define an average significant treshold for each test. But this criteria is not flexible enough: some test may have p-values higher than the significant treshold but still rightfully reject the null hypothesis.  
+  
+\
+Let's take an example to understand that:
+  we test the normality of 4 gene expressions for which the respective p-values are 0.01,0.02,0.016 and 0.01
+    
+The Sidák correction implies to set a significant treshold of $1-0.95^{\frac{1}{4}}\approx0.013$  
+
+and The Bonferroni correction gives us:  $\frac{0.05}{4}=0.0125$
+
+Like so, the second and third tests would not be considered significant.
+
+However if we only use the test 1,3 and 4, we get as tresholds:
+
+$1-0.95^{\frac{1}{3}}\approx0.017$ For Sidák  
+
+$\frac{0.05}{3}\approx0.017$ For Bonferroni
+  
+\
+
+Thus in this case the tests 1,3 and 4 are judged significants.
+
+We see that while the third test are been discarded, he is now significant.
+\
+\
+The drawback of the Sidák and Bonferroni corrections are addressed by the **Holm method**:
+
+1- The p-values of the tests are sorted by increasing order  
+
+2- One by one, the p-values are added and a global significance level is computed each   time.  
+
+3-When the addition of a p-value causes the overrun of the threshold, the test associated with the preceding p-values are considered to be significant,the null hypothesis is accepted for the other tests.  
+    
+    
+In our example we have the following steps:  
+
+  1- ordering of the p-values: 0.1   0.1   0.16   0.2  
+  
+  2- 0.01\le\frac{0.05}{1} 
+  
+  3- 0.01\le\frac{0.05}{2} 
+  
+  4- 0.016\le\frac{0.05}{3}  
+  
+  5- 0.02\frac{0.05}{4}, the null hypothesis associated with this p-value is accepted, the others null hypotheses are rejected.  
+  
+It can be shown that the FWER (For the four tests) is still at most of 5%.
+  
+\
+However the methods based on FWER can be too conservative, even with the Holm method. That is why methods based of the False discovery Rate have been developed.
+
+
+###False Discovery Rate (FDR)
+
+This second approach aims to control the False Discovery Rate (FDR), which is the _probability  of false positive result given that the result is positive_:
+
+$FDR=E[\frac{False \, positive}{False  \, positive+True \, positive}]$
+  
+\
+**Benjamini-Hochberg procedure**
+\
+1- Sort the p-values by ascending order and assign them a rank.  
+
+2- p-values for which $ P_{i}\le \frac{i}{m}\alpha$ are deemed significant,
+where i is the rank of the p-value and m the number of hypotheses tested.  
+  
+\
+Yoav Benjamini and Yosef Hochberg have shown that this procedure garantees $FDR\le\frac{T}{m}\alpha$, with T the total number of positive (H0 true).
+
+Benjamini-Hochberg procedure assume that the individual tests are independent of each other, or positively dependant, which is a reasonable hypothesis in our case.
+
+
+<!-- more powerful than the original Benjamini & Hochberg (1995) procedure when a considerable percentage of the hypotheses in the family are false. It is only slightly less powerful than the original procedure when there are very few false hypotheses. -->
+\
+\
+Finally, we use an improvement of the Benjamini & Hochberg procedure: the **Benjamini & Yekutieli step-up FDR-controlling procedure**.
+
+This method requires no assumptions about how the individual tests depend with each other. But the price of this is that it has less power. (more conservative).
+  
+  
+We compute the corrected p-values obtained with each procedure and display the number of variables for which the null hypothesis of normality is rejected:
+
+
+
+```{r,include=F }
+
+
+resT<-mt.maxT(t(rawdata),rawdata$type)
+teststat<-resT$teststat[order(resT$index)]
+
+```
+
+```{r, }
+
+
+num=matrix(nrow=5,ncol=1)
+colnames(num)<- c("number of positif")
+rownames(num)=c("Bonferroni","Holm","Sidak"," Benjamini & Hochberg","Benjamini & Yekutieli")
+res<-mt.rawp2adjp(rawp, proc=c("Bonferroni"))
+num[1,1]=sum(res$adjp[,2]<0.05)
+
+# Holm (1979) step-down adjusted p-values for strong control of the FWER.
+res<-mt.rawp2adjp(rawp, proc=c("Holm"))
+num[2,1]=sum(res$adjp[,2]<0.05)
+
+#Sidak single-step adjusted p-values for strong control of the FWER (for positive orthant dependent test statistics).
+res<-mt.rawp2adjp(rawp, proc=c("SidakSS"))
+num[3,1]=sum(res$adjp[,2]<0.05)
+
+#Adjusted p-values for the Benjamini & Hochberg (1995) step-up FDR-controlling procedure (independent and positive regression dependent test statistics).
+res<-mt.rawp2adjp(rawp, proc=c("BH"))
+num[4,1]=sum(res$adjp[,2]<0.05)
+
+
+#Adjusted p-values for the Benjamini & Yekutieli (2001) step-up FDR-controlling procedure (general dependency structures).
+res<-mt.rawp2adjp(rawp, proc=c("BY"))
+num[5,1]=sum(res$adjp[,2]<0.05)
+kable(num)
+
+
+```
+
+Considering the results of the Benjamini & Yekutieli procedure (which makes minimal asumptions) we prefer to use Wilcoxon tests instead of t-tests to compare the two group of patients since 820 of our 3051 genes do not follow a normal distribution.
+    
+  
+     
+### The  Wilcoxon-Mann-Whitney rank sum test
+  
+We compute the p-values for each genes, following each of the procedure described ealier;
+  
+  Below we display the number of variable for which the null hypothesis that there is no significative difference between the two gorups is not accepted.
+
+```{r,warning=F }
+
+wilcox=sapply(1:3051, function(i){
+  wilcox.test(ALL[,i], AML[,i], )$p.value
+  }) 
+wilcox=as.data.frame(t(wilcox))
+colnames(wilcox)=colnames(rawdata[1:3051])
+
+pvalues = t(wilcox[ which(wilcox[1,]<0.05)])
+rawp=t(wilcox)
+
+num=matrix(nrow=5,ncol=1)
+colnames(num)<- c("number of positif")
+rownames(num)=c("Bonferroni","Holm","Sidak"," Benjamini & Hochberg","Benjamini & Yekutieli")
+res<-mt.rawp2adjp(rawp, proc=c("Bonferroni"))
+num[1,1]=sum(res$adjp[,2]<0.05)
+
+# Holm (1979) step-down adjusted p-values for strong control of the FWER.
+res<-mt.rawp2adjp(rawp, proc=c("Holm"))
+num[2,1]=sum(res$adjp[,2]<0.05)
+
+#Sidak single-step adjusted p-values for strong control of the FWER (for positive orthant dependent test statistics).
+res<-mt.rawp2adjp(rawp, proc=c("SidakSS"))
+num[3,1]=sum(res$adjp[,2]<0.05)
+
+#Adjusted p-values for the Benjamini & Hochberg (1995) step-up FDR-controlling procedure (independent and positive regression dependent test statistics).
+res<-mt.rawp2adjp(rawp, proc=c("BH"))
+num[4,1]=sum(res$adjp[,2]<0.05)
+
+
+#Adjusted p-values for the Benjamini & Yekutieli (2001) step-up FDR-controlling procedure (general dependency structures).
+res<-mt.rawp2adjp(rawp, proc=c("BY"))
+num[5,1]=sum(res$adjp[,2]<0.05)
+
+kable(num)
+
+```
+  
+  
+We see that depending of the procedure, between 87 and 679 genes are considered to be significantly different between the two groups. We see that the FWER-based procedures are more conservative than the FDER-based ones.
+
+In order to determine to genes with the most potential of discrimination, we display the 10 genes associated with the lowest p-values:
+
+```{r,warning=F }
+
+
+Bonf=mt.rawp2adjp(rawp, proc=c("Bonferroni"))
+Holm=mt.rawp2adjp(rawp, proc=c("Holm"))
+SidakSS=mt.rawp2adjp(rawp, proc=c("SidakSS"))
+BH=mt.rawp2adjp(rawp, proc=c("BH"))
+BY=mt.rawp2adjp(rawp, proc=c("BY"))
+
+allp<-cbind(rawp, Bonf$adjp[order(Bonf$index),2],Holm$adjp[order(Holm$index),2],
+            SidakSS$adjp[order(SidakSS$index),2],BH$adjp[order(BH$index),2],BY$adjp[order(BY$index),2])
+
+pval=allp[order(allp[,1]),,drop=F]
+
+kable(pval[1:10,0])
+
+
+```
+
+# Conclusion
+  
+  In this work we aimed to explore the multiples testing procedures on Omics data, multiple testing was first used to perform a normality test, then to compare the groups in a non-parametric way.
+
+
+## Annexe
+
+```{r}
+mt.plot(allp, teststat, plottype="rvsa",
+col=c("red","blue","brown","green","orange","dark green"),main="Wilcoxon test",lty=1,lwd=3)
+legend("topleft",col=c("red","blue","brown","green","orange","dark green"),legend=c("raw p-values","Bonferroni","Sidak","Holm","BH","BY"),cex= 0.8,lty=1, lwd=3)
+
+```
+

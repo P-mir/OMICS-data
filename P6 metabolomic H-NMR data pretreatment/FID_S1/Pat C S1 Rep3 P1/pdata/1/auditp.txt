@@ -1,0 +1,48 @@
+##TITLE= Audit trail, TOPSPIN		Version 2.1
+##JCAMPDX= 5.01
+##ORIGIN= Bruker BioSpin GmbH
+##OWNER= nmr
+$$ X:\jleenders/data/JL/nmr/Endo_carrelatin_160905/700/pdata/1/auditp.txt
+##AUDIT TRAIL=  $$ (NUMBER, WHEN, WHO, WHERE, PROCESS, VERSION, WHAT)
+(   1,<2016-10-05 15:18:39.750 +0200>,<nmr>,<RMN500>,<go>,<TOPSPIN 2.1>,
+      <created by zg
+	started at 2016-10-05 15:14:13.468 +0200,
+	POWCHK enabled, PULCHK disabled,
+       configuration hash MD5:
+       FE 10 F2 44 2F AA 6E 7A EA DB E3 FE 52 A5 9B 6B
+       data hash MD5: 64K
+       C6 A9 1C 41 B7 2B 26 AB 57 D6 9F C0 BA 17 32 CE>)
+(   2,<2016-10-05 15:18:47.062 +0200>,<nmr>,<RMN500>,<proc1d>,<TOPSPIN 2.1>,
+      <Start of raw data processing
+       ef LB = -0.01 FT_mod = 6 PKNL = 1 SI = 64K 
+       data hash MD5: 64K
+       F4 5A 26 71 61 AB F6 2B E9 58 45 86 34 85 C9 3E>)
+(   3,<2016-10-05 15:18:47.562 +0200>,<nmr>,<RMN500>,<proc1d>,<TOPSPIN 2.1>,
+      <apk 
+       data hash MD5: 64K
+       37 5E 5F 09 2F EF 02 FE FA 12 C6 AD F5 FC 6E 7D>)
+(   4,<2016-10-05 15:18:47.640 +0200>,<nmr>,<RMN500>,<proc1d>,<TOPSPIN 2.1>,
+      <abs ABSG = 1 
+       data hash MD5: 64K
+       21 07 A0 3D 72 A5 28 62 48 71 A7 FD 36 FC BF E1>)
+(   5,<2016-10-05 15:18:47.812 +0200>,<nmr>,<RMN500>,<audit>,<TOPSPIN 2.1>,
+      <user comment:
+       ICON-NMR User ID: JL
+       data hash MD5: 64K
+       21 07 A0 3D 72 A5 28 62 48 71 A7 FD 36 FC BF E1>)
+(   6,<2016-10-05 15:18:48.046 +0200>,<nmr>,<RMN500>,<dirdata>,<TOPSPIN 2.1>,
+      <wrpa from 1 700 "Endo_carrelatin_160905" "JL" "C:\donnees_rmn"
+       data hash MD5: 64K
+       21 07 A0 3D 72 A5 28 62 48 71 A7 FD 36 FC BF E1>)
+(   7,<2016-10-17 13:38:35.326 +0200>,<pdetullio>,<PC-ULG>,<proc1d>,<TOPSPIN 3.2>,
+      <pk fgphup PHC0 = 0 PHC1 = 0 
+       data hash MD5: 64K
+       21 07 A0 3D 72 A5 28 62 48 71 A7 FD 36 FC BF E1>)
+(   8,<2016-10-17 13:38:36.943 +0200>,<pdetullio>,<PC-ULG>,<proc1d>,<TOPSPIN 3.2>,
+      <abs ABSG = 1 
+       data hash MD5: 64K
+       40 9C 91 D1 0C D4 F8 A6 C0 8D D3 EF 1D A4 01 4A>)
+##END=
+
+$$ hash MD5
+$$ 81 F3 B8 97 E4 50 4E 05 70 91 D9 8D BA F7 E3 9A

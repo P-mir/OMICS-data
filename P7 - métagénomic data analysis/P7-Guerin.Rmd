@@ -1,0 +1,191 @@
+---
+title: "Metagenomic"
+author: "Patrick Guerin"
+date: '`r format(Sys.time(), "%B %d, %Y,%H:%M")`'
+output:
+  html_document: # options pour sortie HTML
+    code_folding: hide #  Cache le code  
+    collapsed: yes # Crée un document unique 
+    fig_caption: yes # Figures encapsulées ? 
+    fig_height: 5 # Hauteur par défaut des figures
+    fig_width: 6 # Largeur par défaut des figure
+    highlight: tango # style de mise en valeur du code
+    # number_sections: yes # Ajout table des matières 
+    theme: yeti  # Style du document
+    toc: yes # Table des matiere ?
+    toc_depth: 2  # Profondeur table des matière
+    toc_float: yes # table des matière flottante
+  pdf_document: # options pour sorties pdf
+    toc: yes
+    toc_depth: '3'
+  word_document: default
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set( warning=FALSE)
+
+# install.packages("ape")
+# source("https://bioconductor.org/biocLite.R")
+# biocLite("ape")
+# biocLite("phyloseq")
+# biocLite("Biostrings")
+# biocLite("phangorn")
+# biocLite("GUniFrac")
+# biocLite("ade4")
+# biocLite("muscle")
+library(ape)
+suppressMessages(library(phyloseq))
+suppressMessages(library(Biostrings))
+suppressMessages(library(phangorn))
+suppressMessages(library(GUniFrac))
+suppressMessages(library(ade4))
+suppressMessages(library(muscle))
+library(pander)
+```
+
+## 1 : Introduction
+
+\
+Pour rendre l'altitude significative à la place de l'espèce, plusieurs modifications ont été nécéssaires:
+
+\
+1- Modifier le fichier phenotypic pour mettre une même altitude pour chaque espèce.
+
+2-Modifier l'ordre des espèces afin qu'elle ne soient plus associés aux OTU initiaux.
+
+3-Modifier les noms de lignes et colonnes des fichiers pour qu'ils reflètent les changements effectués.
+
+
+## 2 : importation des données de comptage et pre-traitement
+
+```{r}
+setwd("~/Traitement des données omics/Devoirs/P7 - Analyse de données métagénomiques")
+# setwd("~/Traitement des données omics/metagenomic/Metagenomique-master")
+table <- read.table('1-data-in/otu.Table.txt',sep='\t',header = TRUE)
+panderOptions('table.continues', '')
+# print(table)
+pander(apply(table,2,sum),caption='nombre total de bactéries par pucerons')
+```
+
+
+<!-- Dans ce tableau, on observe les 18 échantillons/individus (pucerons) et les 17 variables (OTU n°1 ... OTU n°17) (1 OTU correspond à un groupe de bactérie très homogène). Les individus correspondent aux colonnes alors que les variables sont les lignes. En génomique, cette organisation des données est largement utilisée étant donné que le nombre de variables est généralement beaucoup plus grand que le nombre d'observations. -->
+
+On remarque que le nombre total de bactéries diffère en fonction du puceron, Nous appliquons une étape de raréfaction afin d'avoir un nombre identique (60.000) de bactéries par pucerons pour pouvoir comparer les données.
+
+
+```{r,message=FALSE}
+OTU <- otu_table(table,taxa_are_rows = T)
+myphyloseq <- phyloseq(OTU)
+myphyloseq <- rarefy_even_depth(myphyloseq, sample.size = 60000, replace = F)
+table.rrf <- data.frame(otu_table(myphyloseq))
+pander(apply(table.rrf,2,sum),caption='nombre total de bactéries par pucerons après correction')
+OTU <- otu_table(table.rrf,taxa_are_rows= T) 
+
+otus <- readDNAStringSet("1-data-in/otus.fasta", format = "fasta")
+# print(otus)
+taxonomy <- read.table('1-data-in/taxonomy.txt',sep='\t')
+# print(taxonomy)
+taxtable <- tax_table(as.matrix(taxonomy))
+```
+
+<!-- ## 3: importation des données taxonomiques -->
+
+
+<!-- ## 4: importation des données phénotypiques -->
+
+<!-- Nous importons également les données de caractérisation des pucerons. -->
+
+```{r,include=FALSE}
+setwd("~/Traitement des données omics/Devoirs/P7 - Analyse de données métagénomiques")
+# setwd("~/Traitement des données omics/metagenomic/Metagenomique-master")
+phenotypic <- read.csv('1-data-in/phenotypic.csv',sep=";")
+rownames(phenotypic) <- colnames(table.rrf)
+sampledata <- sample_data(phenotypic)
+```
+
+<!-- ## 5: fusion de toutes les informations dans un objet de type phyloseq -->
+
+```{r,include=FALSE}
+myphyloseq <- phyloseq(OTU,taxtable,sampledata)
+# print(myphyloseq)
+```
+
+## 6: Représentations graphiques des abondances de bactéries dans les pucerons
+
+Nous allons réaliser deux représentations des données qui sont largement utilisées dans la littérature.
+
+```{r}
+plot_bar(myphyloseq,fill='genus')
+#donne une idée de la composition bactérienne des individus
+```
+
+Ce graphique nous permet de répresenter la quantité de nos bactéries d'intérêt présentes dans le tube digestif de chacun des pucerons.  La bactérie Buchnéra domine largement la faune bactérienne, résultat logique puisqu'elle est un endosymbiote de toute les espèces de pucerons. D'autres epsèces de bactéries sont également présentes en grande quantité (Serratia,Regiella et Hamiltonella).
+
+Une "heatmap" permet également de visualiser cette information en répresentant la quantité de bactérie par des nuances de couleurs:
+```{r}
+plot_heatmap(myphyloseq,taxa.label='genus',taxa.order='genus',sample.order=colnames(table.rrf),low='yellow',high='red',na.value = 'yellow') 
+# on ne peut pas comparer le nombre de bactérie au sein d'un meme individu car la pcr peut fonctionner tres bien sur certaines bactéries et moins sur les autres
+```
+
+Il faut cependant se garder d'interpréter ces données au niveau individuel car le traitement des données peut par PCR peut être plus efficace sur certaines bactéries que sur d'autres, et il faut donc se cantonner aux comparaisons entre individus.
+
+## 7: Analyse de la diversité alpha
+
+La diversité alpha est une mesure de la diversité intra-échantillon. Plusieurs indices sont utilisés dans la littérature pour la caractériser. Les plus populaires sont le nombre d'OTUs observés, l'indice de Shannon (entropie) et l'indice de Simpson ($D=\frac{\sum_{i}N_{i}(N_{i}-1)}{N-1}$ avec $N_{i}$ le nombre d'individus de l'espèce donnée et $N$ le nombre total d'individus,0 indiquant une diversité maximale).
+
+```{r}
+plot_richness(myphyloseq,measures=c("Observed", "Shannon", "Simpson"),color='species',title = 'Différents étalons pour mesurer la diversité alpha')
+```
+
+Si il est assez difficile de séparer les espèces on peut remarquer que l'espèce "Dn" possède un grand nombre d'OTU (forte diversité alpha selon le critère du nombre d'OTUs observés) mais qu'en terme de quantité seul quelques OTU sont beaucoup représentés (faible diversité alpha chez 4 des pucerons "Dn" selon l'indice de Shannon ou Simpson).
+
+## 8: Analyse de la beta diversity
+
+La diversité beta est une mesure de la diversité inter-échantillon. Elle est construite ) l'aide d'une matrice de distance entre chaque paire d'échantillons. Nous adoptons la métrique Unifrac généralisée qui permet d'intégrer de l'information phylogénétique dans le calcul des distances.
+
+
+  ** Récupération des information phylogénétiques à l'aide du package *muscle* et calcul des distances phylogénétiques avec *stringDist* **
+
+```{r}
+
+names=paste(names(otus),taxonomy$genus, sep = ":")
+names(otus) <- names
+row.names(table.rrf) <- names(otus)
+align.muscle <- muscle::muscle(otus,quiet=T)
+dist1 <- stringDist(as(align.muscle,"DNAStringSet"), method="hamming")
+mytree1 <- upgma(dist1)
+plot(mytree1,main= 'Dendogramme des Unités taxonomiques opérationnelles')
+```
+
+Nous pouvons constater que certains OTU sont très proches (OTUs 1,2,4 et 5 par example) tandis que l'OTU 17 correspondant au Staphylocoque est très éloigné des autres.
+
+A partir de cette information on peut calculer la matrice de distance.
+
+```{r}
+unifracs <- GUniFrac(t(table.rrf), mytree1)$unifracs
+d5 <- unifracs[, , "d_0.5"]
+
+```
+
+Nous cherchons maintenant à savoir  si les distances inter-échantillons sont plutôt influencées par l'espèce de puceron ou plutôt par l'altitude à laquelle l'échantillon a été prélevé à l'aide d'une analyse manova non paramétrique.
+
+```{r}
+myadonis <- adonis(as.dist(d5) ~ species+altitude,data=phenotypic)
+pander(myadonis$aov.tab,caption = "Resultat de la MANOVA non paramétrique")
+```
+
+Etrangement, l'espèce de pucerons n'explique pas de manière significative les différences observé entre les pucerons, contrairement à l'altitude qui explique 32% de la variation inter-échantillons. Notre modèle peut sans doute être amélioré étant donné que 63% de la variance reste inexpliquée.
+
+\
+Il est également possible de visualiser cette matrice de distance avec une analyse PCoA (Principal Coordinates analysis),methode de multidimensional scaling prenant comme argument une matrice de dissymilarité au lieu d'une matrice de covariance.
+
+```{r}
+s.class(cmdscale(d5, k=2), fac = phenotypic$species,col=c('red','green2','blue'))
+
+
+title(main="Diagramme de dispersion")
+
+```
+
+Nous pouvons constater  que les espèce de moucherons "Rp" et "Rm" sont proches l'une de l'autre.
+
+

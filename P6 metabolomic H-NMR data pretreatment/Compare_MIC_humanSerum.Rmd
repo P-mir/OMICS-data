@@ -1,0 +1,266 @@
+---
+title: "Comparaison du MIC de plusieurs matrices de spectres"
+author: "B. Govaerts - M. Martin"
+date: '`r format(Sys.time(), "%B %d, %Y,%H:%M")`'
+output:
+  html_document: # options pour sortie HTML
+    code_folding: hide #  Cache le code  
+    collapsed: yes # Crée un document unique 
+    fig_caption: yes # Figures encapsulées ? 
+    fig_height: 5 # Hauteur par défaut des figures
+    fig_width: 6 # Largeur par défaut des figure
+    highlight: tango # style de mise en valeur du code
+    number_sections: yes # Ajout table des matières 
+    theme: united  # Style du document
+    toc: yes # Table des matiere ?
+    toc_depth: 3  # Profondeur table des matière
+    toc_float: yes # table des matière flottante
+  pdf_document: # options pour sorties pdf
+    toc: yes
+    toc_depth: '3'
+  word_document: default
+---
+
+```{r INTRO, include=FALSE}
+# ====================================================================
+#  Ce code permet de faire une analyse de répétabilité de plusieurs 
+#  matrices de données omiques émanant des même échantillons
+#  mais acquises ou prétraitées par plusieurs méthodes 
+#  Les données doivent être classées en groupes.
+#  ATTENTION LES NOMS DES SPECTRES DOIVENT ETRE IDENTIQUES DANS LES
+#  DIFFERENTES MATRICES DE SPECTRE A COMPARER MAIS PAS NECESSAIREMENT DANS
+#  LE MEME ORDRE
+# 
+#  Le code propose plusieurs méthodes pour évalier l'information
+#  - PCA
+#  - Mesures d'inertie
+#  - Classification non supervisée 
+#  - Classification superviée (par PLS-DA)
+#
+# ====================================================================
+```
+
+```{r setup, include=FALSE}
+## Download and load the librairies utiles
+# install_github("ManonMartin/MBXUCL")
+require(devtools)
+library(markdown)
+require(knitr) 
+require(pander) # Librairie pour afficher des tableaux
+require(MBXUCL)
+require(PepsNMR)
+## Options globales
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Comparaison du MIC de matrices de spectres
+Données human Serum prétraitées par SOAP par deux méthodes:
+
+1. Full : Peps avec l'ensemble des étapes 
+2. Manuel : étapes appliquées manuellement avec Topspin par l'équipe ULG 
+
+# Lecture des matrices des spectres et initiatilisation des variables utiles
+
+!!!!!!! C'est ici que vous devez faire les modifications pour adapter le code à vos données
+
+```{r}
+#  Choix du répertoire où sont les matrices de données
+pathdir="~/Dropbox/Partage_OMICS_COURSE/Data_stat2340/Human_Serum"
+#  Definition des matrices à lire dans ce répertoire
+data_used=c("HumSerum_full_PEPS.csv","HumSerum_Manual_500P.csv")
+spectral_matrices_names=c("HumSerum_full_PEPS","HumSerum_Manual_500P")
+nmatrices=length(data_used)
+# Lecture des matrices de données.  
+## On les stocke dans spectral_matrices_list
+## On remplace les noms des colonnes par des noms sans le X
+spectral_matrices_list=list() 
+for(i in 1:nmatrices)
+{
+spectral_matrices_list[[spectral_matrices_names[i]]]=as.matrix(read.table(file.path(pathdir,data_used[i]),header=T,sep=";",row.names=1,dec="."))
+dimnames(spectral_matrices_list[[i]])[[2]]=as.numeric(substring(dimnames(spectral_matrices_list[[i]])[[2]],first=2))
+cat("\n Lecture de la matrice : ",spectral_matrices_names[i])
+}
+# On recherche la matrice des spectres communs dans les 2 bases (si ce n'est pas le cas au départ), on eleve les blancs des noms 
+dimnames(spectral_matrices_list[[1]])[[1]]=gsub(" ","",dimnames(spectral_matrices_list[[1]])[[1]]) # on enleve des blancs des noms des spectres.  
+namespectra=dimnames(spectral_matrices_list[[1]])[[1]]
+countspectra=matrix(nrow=nmatrices+1,ncol=2)
+dimnames(countspectra)=list(c(spectral_matrices_names,"Common Spectra"),c("Nb of spectra","Nb Buckets"))
+countspectra[1,1]=length(namespectra)
+countspectra[1,2]=dim(spectral_matrices_list[[1]])[2]
+for(i in 2:nmatrices)
+{
+dimnames(spectral_matrices_list[[i]])[[1]]=gsub(" ","",dimnames(spectral_matrices_list[[i]])[[1]]) 
+newnames=dimnames(spectral_matrices_list[[i]])[[1]]
+compnames=is.element(namespectra,newnames) 
+countspectra[i,1]=length(newnames)
+countspectra[i,2]=dim(spectral_matrices_list[[i]])[2]
+namespectra=namespectra[compnames]
+}  
+countspectra[nmatrices+1,1]=length(namespectra)
+pander(countspectra)
+# On extrait les bons spectres et on les met dans le même ordre
+for(i in 1:nmatrices)
+{
+spectral_matrices_list[[i]]=spectral_matrices_list[[i]][namespectra,]
+} 
+# Creation des variables qui définissent les groupes
+# Pour les données human serum c'est le 5ième charactère du nom du spectre
+# Cette ligne de code est à adapter dans d'autres situations !
+groupes=as.numeric(substring(namespectra, 5, 5))
+
+
+```
+
+```{r drawspectra}
+# 3. on dessine les spectres
+for(i in 1:nmatrices)
+{
+print(spectral_matrices_names[i])  
+Draw(spectral_matrices_list[[i]],type.draw="signal",subtype="stacked",num.stacked=4)
+}
+```
+
+# Etude de la répétabilité spectrale
+
+##  Between and Within group inertia
+
+```{r, include=FALSE}
+# Définitions des matrices de résultats
+Inertiavalues=matrix(nrow=nmatrices,ncol=3)
+dimnames(Inertiavalues)=list(spectral_matrices_names,c("BI","WI","TI"))
+Inertiapc=Inertiavalues
+nGroup = length(unique(groupes))
+InertiaPerGroup=matrix(nrow=nGroup+1,ncol=nmatrices)
+dimnames(InertiaPerGroup)[[1]]=c(unique(groupes),"Total")
+dimnames(InertiaPerGroup)[[2]]=spectral_matrices_names
+# Boucle de calcul des inerties
+for(i in 1:nmatrices)
+{
+Inertia.res = Inertia(x = spectral_matrices_list[[i]], y = groupes, print = FALSE)
+Inertiavalues[i,]=Inertia.res[["Between_within"]][1,]
+Inertiapc[i,]=Inertia.res[["Between_within"]][2,]
+InertiaPerGroup[,i]=Inertia.res[["Per_group"]][,2]
+}
+```
+
+```{r}
+# Impression des résultats des calculs d'inertie
+cat("Inerties non standardisées")
+pander(list(Inerties_non_standardisees=Inertiavalues,Inerties_en_PC=Inertiapc,Inerties_within_groups=InertiaPerGroup))
+```
+
+##  PCA
+
+```{r PCA, include=FALSE}
+ncompPCA = 4
+# Exécution des PCAs
+PCA.res= vector("list")
+for(i in 1:nmatrices)
+{
+PCA.res[[i]] = MBXUCL::SVDforPCA(spectral_matrices_list[[i]], ncomp=ncompPCA)
+}
+```
+
+### Eigenvalues
+```{r eigPCA, include=FALSE}
+Eigenvalues=matrix(nrow=nmatrices,ncol=ncompPCA)
+dimnames(Eigenvalues)=list(spectral_matrices_names,paste("PC",1:ncompPCA))
+for(i in 1:nmatrices)
+{
+Eigenvalues[i,]=cumsum(PCA.res[[i]][["eigval"]][1:ncompPCA]/sum(PCA.res[[i]][["eigval"]]))
+}
+
+pander(Eigenvalues)
+```
+
+### PCA Score Plots
+```{r PCAScoresplot, out.width = '50%', warning = FALSE}
+draw.scores12 = vector("list")
+draw.scores34 = vector("list")
+for(i in 1:nmatrices)
+{
+draw.scores12[[spectral_matrices_names[i]]]=MBXUCL::DrawScores(PCA.res[[i]], drawNames=TRUE, type.obj = "PCA",createWindow=FALSE, main = paste0("PCA score plot for ",spectral_matrices_names[i]),pch = groupes, col = groupes,axes =c(1,2))
+draw.scores34[[spectral_matrices_names[i]]]=MBXUCL::DrawScores(PCA.res[[i]], drawNames=TRUE, type.obj = "PCA",createWindow=FALSE, main = paste0("PCA score plot for ",spectral_matrices_names[i]),pch = groupes,col = groupes, axes =c(3,4))
+}
+```
+```{r, warning = FALSE}
+draw.scores12
+draw.scores34
+```
+
+### PCA Loading Plots
+```{r PCAloadingsplot, warning = FALSE}
+draw.loadings12 = vector("list")
+draw.loadings34 = vector("list")
+for(i in 1:nmatrices)
+{
+draw.loadings12[[spectral_matrices_names[i]]] = MBXUCL::DrawLoadings(PCA.res[[i]],  type.obj = "PCA",createWindow=FALSE, main = paste0("PCA loadings plot for", spectral_matrices_names[i]),axes = c(1:2), loadingstype="l", num.stacked = 2)[[1]]
+draw.loadings34[[spectral_matrices_names[i]]] = MBXUCL::DrawLoadings(PCA.res[[i]],  type.obj = "PCA",createWindow=FALSE, main = paste0("PCA loadings plot for", spectral_matrices_names[i]),axes = c(3:4), loadingstype="l", num.stacked = 2)[[1]]
+}
+draw.loadings12
+draw.loadings34
+```
+
+##  Unsupervised clustering (MIC)
+
+```{r ClustMIC}
+nClust = length(unique(groupes)) # nombre de clusters à rechercher
+clustres=matrix(0,nrow=nmatrices,ncol=8)
+dimnames(clustres)=list(spectral_matrices_names,c("DunnW","DunnKM","DBW","DBKM","RandW","RandKM","AdjRandW","AdjRandKM"))
+for(i in 1:nmatrices)
+{
+print(spectral_matrices_names[i]) 
+ClustMIC.res = MBXUCL::ClustMIC(Intensities = spectral_matrices_list[[i]], nClust = nClust, Trcl = groupes, Dendr = TRUE)
+clustres[i,]=as.numeric(ClustMIC.res[1,1:8])
+}
+pander(clustres)
+```
+
+## PLS-DA
+
+```{r PLSDA, out.width = '70%'}
+nLVPLSDA = 4  # nombre du composantes du PLSDA
+nrep=nlevels(as.factor(groupes)) # Nombre de réponses
+PLSDA.res=list()
+perf.plsda.RMSEP=matrix(nrow=nmatrices,ncol=nrep)
+dimnames(perf.plsda.RMSEP)=list(spectral_matrices_names,paste0("Y",1:nrep))
+perf.plsda.R2=perf.plsda.RMSEP
+perf.plsda.Q2=perf.plsda.RMSEP
+for(i in 1:nmatrices)
+{
+cat("PLS-DA pour ",spectral_matrices_names[i])  
+PLSDA.res [[i]]= PLSDA(x = spectral_matrices_list[[i]], y = groupes, nLV = nLVPLSDA, drawRMSEP = TRUE)
+perf.plsda.RMSEP[i,] = PLSDA.res[[i]]$RMSEP
+perf.plsda.R2[i,]=PLSDA.res[[i]]$R2
+perf.plsda.Q2[i,]=PLSDA.res[[i]]$Q2
+}
+```
+
+```{r}
+pander(list(RMSEP=perf.plsda.RMSEP,R2=perf.plsda.R2,Q2=perf.plsda.Q2))
+```
+
+### Score plots de la PLS_DA
+```{r PLSDAScoresplot, out.width = '70%'}
+PLSDA.scores= vector("list")
+for(i in 1:nmatrices)
+{ 
+PLSDA.scores[[spectral_matrices_names[i]]]=DrawScores(PLSDA.res[[i]], drawNames=TRUE, type.obj = c("PLSDA"),
+        createWindow=FALSE, main = paste0("PLSDA score plot for ", spectral_matrices_names[i]),pch = groupes,col = groupes, axes =c(1,2))
+}
+PLSDA.scores
+```
+
+### Loading plots de la PLS_DA
+```{r PLSDAloadingsplot}
+PLSDA.loadings= vector("list")
+for(i in 1:nmatrices)
+{ 
+PLSDA.loadings[[spectral_matrices_names[i]]]=DrawLoadings(PLSDA.res[[i]],  type.obj = "PLSDA",
+        createWindow=FALSE, main = paste0("PLSDA loadings plot for", spectral_matrices_names[i]),
+        axes = c(1:2),  loadingstype="l", num.stacked = 2)
+}
+PLSDA.loadings
+```
+
+
