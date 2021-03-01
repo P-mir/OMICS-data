@@ -8,4 +8,4 @@ multiple testing, alpha/beta-diversity, PC(o)A, hierarchical, PLS-DA, and more.
 ![Principal component analysis help characterize sick patients w.r.t to the control group](PCA_sick_vs_control_group.PNG)
 
 
-![Dendogram based on phylogenetic data](Hierarchicalclustering_phylogenetic)
+![Dendogram based on phylogenetic data](Hierarchicalclustering_phylogenetic.PNG)
